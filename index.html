@@ -5,16 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HR-BKK Leave App</title>
     
-    <!-- React & Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Tailwind CSS, DaisyUI & LINE LIFF SDK -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
     <style>
         body { font-family: 'Prompt', sans-serif; }
@@ -27,18 +25,19 @@
 
     <script type="text/babel">
         const API_URL = "https://script.google.com/macros/s/AKfycbzmnO2wTEFffmACGIxHKCSzFmf4dbfmsIJrLBJBvK5fLDIfalwF7Va9NHCkvLhFbHUwsg/exec";
-        
-        // 🛑 นำ LIFF ID จาก LINE Developers มาใส่ตรงนี้ 🛑
         const LIFF_ID = "2008647384-4VFgDXrP"; 
 
         function App() {
-            const [currentPage, setCurrentPage] = React.useState('loading'); // เริ่มด้วยหน้าโหลดเพื่อเช็ค LIFF
+            const [currentPage, setCurrentPage] = React.useState('loading');
+            
+            // สถานะสำหรับการ Login & OTP
             const [emailInput, setEmailInput] = React.useState('');
+            const [otpInput, setOtpInput] = React.useState('');
+            const [isOtpMode, setIsOtpMode] = React.useState(false);
+            
             const [isLoading, setIsLoading] = React.useState(false);
             const [userProfile, setUserProfile] = React.useState(null);
-            
-            // สถานะของ LINE
-            const [lineUid, setLineUid] = React.useState(null);
+            const [lineProfile, setLineProfile] = React.useState(null);
             
             const [leaveTypes, setLeaveTypes] = React.useState([]);
             const [statusCodes, setStatusCodes] = React.useState({});
@@ -46,66 +45,73 @@
             const [departments, setDepartments] = React.useState([]);
             const [selectedDept, setSelectedDept] = React.useState('all');
             const [sortBy, setSortBy] = React.useState('reqId_desc'); 
+            const [viewMode, setViewMode] = React.useState('board');
+
             const [formData, setFormData] = React.useState({ leaveType: '', startDate: '', endDate: '', reason: '' });
             const [startDayType, setStartDayType] = React.useState('full');
             const [endDayType, setEndDayType] = React.useState('full');
 
-            // ==========================================
-            // 1. ตรวจสอบการ Login ผ่าน LINE LIFF ทันทีที่เปิดแอป
-            // ==========================================
             React.useEffect(() => {
                 const initLiff = async () => {
                     try {
                         await liff.init({ liffId: LIFF_ID });
                         if (liff.isLoggedIn()) {
                             const profile = await liff.getProfile();
-                            setLineUid(profile.userId);
+                            setLineProfile({ uid: profile.userId, pictureUrl: profile.pictureUrl });
                             
-                            // ส่ง UID ไปเช็คใน Google Sheets ว่าเคยผูกบัญชีหรือยัง
+                            // เช็คก่อนว่า UID นี้ผูกบัญชีไว้หรือยัง
                             const response = await fetch(API_URL, {
                                 method: 'POST',
-                                body: JSON.stringify({ action: 'loginWithLine', lineUid: profile.userId })
+                                body: JSON.stringify({ action: 'loginWithLine', lineUid: profile.userId, pictureUrl: profile.pictureUrl })
                             });
                             const result = await response.json();
                             
                             if (result.success) {
-                                // เคยผูกแล้ว -> เข้า Dashboard ทันที
                                 setUserProfile(result.profile);
                                 fetchSettings();
                                 setCurrentPage('dashboard');
                             } else {
-                                // ยังไม่เคยผูก -> ไปหน้า Login เพื่อกรอกอีเมล
                                 setCurrentPage('login');
                             }
                         } else {
-                            // ถ้าเปิดในเบราว์เซอร์ปกติ ให้ login ผ่าน LINE Web
                             liff.login();
                         }
                     } catch (err) {
-                        console.error('LIFF Init Error:', err);
-                        // ถ้าพังหรือไม่ระบุ LIFF ID ให้เปิดหน้า Login ปกติเพื่อทดสอบได้
                         setCurrentPage('login');
                     }
                 };
-                
-                if (LIFF_ID && LIFF_ID !== "ใส่_LIFF_ID_ของเฮียปุ่มตรงนี้") {
-                    initLiff();
-                } else {
-                    setCurrentPage('login'); // ข้าม LIFF หากยังไม่ตั้งค่า
-                }
+                if (LIFF_ID) initLiff();
             }, []);
 
-            // ==========================================
-            // 2. ฟังก์ชัน Login (รองรับการผูกบัญชี)
-            // ==========================================
-            const handleLogin = async (e) => {
+            // 1. กดปุ่ม Login (เพื่อขอ OTP)
+            const handleRequestOTP = async (e) => {
                 e.preventDefault();
                 setIsLoading(true);
                 try {
-                    // ถ้ามี lineUid ให้ใช้คำสั่ง bindLineAccount ถ้าไม่มีให้ใช้ getEmployeeProfile (Login ปกติ)
-                    const actionType = lineUid ? 'bindLineAccount' : 'getEmployeeProfile';
-                    const payload = { action: actionType, email: emailInput, lineUid: lineUid };
+                    const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'requestOTP', email: emailInput }) });
+                    const result = await response.json();
                     
+                    if(result.success) {
+                        setIsOtpMode(true);
+                    } else { 
+                        alert(result.message || "ไม่พบอีเมลพนักงานนี้ในระบบ"); 
+                    }
+                } catch (error) { alert("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ"); }
+                setIsLoading(false);
+            };
+
+            // 2. กดปุ่ม ยืนยัน OTP
+            const handleVerifyOTP = async (e) => {
+                e.preventDefault();
+                setIsLoading(true);
+                try {
+                    const payload = { 
+                        action: 'verifyOTP', 
+                        email: emailInput, 
+                        otp: otpInput, 
+                        lineUid: lineProfile?.uid || "", 
+                        pictureUrl: lineProfile?.pictureUrl || "" 
+                    };
                     const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
                     const result = await response.json();
                     
@@ -113,8 +119,12 @@
                         setUserProfile(result.profile);
                         fetchSettings(); 
                         setCurrentPage('dashboard');
-                    } else { alert("ไม่พบข้อมูลพนักงานในระบบ กรุณาตรวจสอบอีเมล"); }
-                } catch (error) { alert("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ API"); }
+                        setIsOtpMode(false);
+                        setOtpInput('');
+                    } else { 
+                        alert(result.message || "รหัส OTP ไม่ถูกต้อง"); 
+                    }
+                } catch (error) { alert("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ"); }
                 setIsLoading(false);
             };
 
@@ -122,10 +132,7 @@
                 try {
                     const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'getSettings' }) });
                     const result = await res.json();
-                    if(result.success) {
-                        setLeaveTypes(result.data.leaveTypes);
-                        setStatusCodes(result.data.statusCodes || {});
-                    }
+                    if(result.success) { setLeaveTypes(result.data.leaveTypes); setStatusCodes(result.data.statusCodes || {}); }
                 } catch (error) {}
             };
 
@@ -157,7 +164,7 @@
                 }
                 if (!actionType.includes('cancel') && !window.confirm(confirmMsg)) return;
 
-                setRequests(prev => prev.filter(r => r.reqId !== req.reqId)); // Optimistic UI
+                setRequests(prev => prev.filter(r => r.reqId !== req.reqId)); 
                 try {
                     const payload = { reqId: req.reqId, action: actionType, actionBy: userProfile.empEmail, comment: comment, empEmail: req.empEmail, managerEmail: req.managerEmail };
                     const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'processLeaveAction', payload: payload }) });
@@ -172,6 +179,7 @@
                 const start = new Date(formData.startDate);
                 const end = new Date(formData.endDate);
                 let diffDays = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)) + 1;
+                
                 if (formData.startDate === formData.endDate) {
                     if (startDayType === 'half' || endDayType === 'half') diffDays = 0.5;
                 } else {
@@ -195,38 +203,95 @@
 
             const shortDate = (dateStr) => new Date(dateStr).toLocaleDateString('th-TH', {day: 'numeric', month: 'short', year: 'numeric'});
 
-            const getBadgeClass = (type) => {
-                if(type.includes('กิจ')) return "badge badge-primary badge-outline font-bold";
-                if(type.includes('ป่วย')) return "badge badge-secondary badge-outline font-bold";
-                if(type.includes('พักร้อน')) return "badge badge-accent badge-outline font-bold text-accent-content";
-                return "badge badge-neutral font-bold";
+            const getLeaveStyle = (type) => {
+                if(type.includes('กิจ')) return { bg: 'bg-[#FFF3E0]', border: 'border-[#FFE0B2]', text: 'text-[#E65100]', icon: '📝', badge: 'bg-[#FFE0B2] text-[#E65100]' };
+                if(type.includes('ป่วย')) return { bg: 'bg-[#E3F2FD]', border: 'border-[#BBDEFB]', text: 'text-[#1565C0]', icon: '💊', badge: 'bg-[#BBDEFB] text-[#1565C0]' };
+                if(type.includes('พักร้อน')) return { bg: 'bg-[#E8F5E9]', border: 'border-[#C8E6C9]', text: 'text-[#2E7D32]', icon: '🌴', badge: 'bg-[#C8E6C9] text-[#2E7D32]' };
+                if(type.includes('นอกสถานที่')) return { bg: 'bg-[#F3E5F5]', border: 'border-[#E1BEE7]', text: 'text-[#6A1B9A]', icon: '🚗', badge: 'bg-[#E1BEE7] text-[#6A1B9A]' };
+                return { bg: 'bg-[#F5F5F5]', border: 'border-[#E0E0E0]', text: 'text-[#424242]', icon: '📄', badge: 'bg-[#E0E0E0] text-[#424242]' };
             };
 
+            const Avatar = ({ url, name, sizeClass="w-12" }) => (
+                <div className="avatar">
+                    <div className={`${sizeClass} rounded-full ring ring-base-100 ring-offset-base-100 ring-offset-2 shadow-sm`}>
+                        <img src={url || `https://ui-avatars.com/api/?name=${name}&background=random&color=fff`} alt="Profile" />
+                    </div>
+                </div>
+            );
+
+            // Component - Board View
             const LeaveCard = ({ req }) => {
+                const style = getLeaveStyle(req.leaveType);
                 return (
-                    <div className="card bg-base-100 shadow-sm border border-base-200 mb-4 hover:shadow-md transition-all">
+                    <div className={`card ${style.bg} ${style.border} shadow-md mb-5 hover:shadow-lg transition-all rounded-3xl`}>
                         <div className="card-body p-5">
-                            <div className="flex justify-between items-start mb-2">
-                                <div><h3 className="card-title text-lg">{req.leaveType}</h3><div className="text-xs text-base-content/50 uppercase tracking-widest mt-1">REF. {req.reqId.replace('2026-', '')}</div></div>
-                                <div className={getBadgeClass(req.leaveType)}>{req.totalDays} วัน</div>
+                            <div className="flex justify-between items-center mb-4 pb-3 border-b border-black/5">
+                                <div className="flex items-center gap-3">
+                                    <Avatar url={req.pictureUrl} name={req.empName} sizeClass="w-14" />
+                                    <div>
+                                        <h3 className={`font-bold text-xl leading-tight flex items-center gap-1 ${style.text}`}>
+                                            <span>{style.icon}</span> {req.leaveType}
+                                        </h3>
+                                        <div className="text-xs text-base-content/60 font-semibold uppercase tracking-widest mt-1">REF. {req.reqId.replace('2026-', '')}</div>
+                                    </div>
+                                </div>
+                                <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${style.badge}`}>{req.totalDays} วัน</div>
                             </div>
-                            <div className="space-y-2 mt-2">
-                                <div className="text-sm"><span className="text-base-content/50 font-bold mr-2">👤</span><span className="font-bold text-primary">{req.empName}</span><span className="text-base-content/70 ml-1">({req.department})</span></div>
-                                <div className="text-sm"><span className="text-base-content/50 font-bold mr-2">📅</span><span className="font-medium text-base-content/80">{shortDate(req.startDate)} - {shortDate(req.endDate)}</span></div>
-                                <div className="text-sm"><span className="text-base-content/50 font-bold mr-2">💬</span><span className="text-base-content/80">{req.reason}</span></div>
-                                {req.actionReason && <div className="alert alert-error shadow-none p-3 rounded-lg mt-2 text-xs font-medium"><svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-4 w-4" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>{req.actionReason}</span></div>}
+                            <div className="space-y-2 mt-1">
+                                <div className="text-sm"><span className="font-bold text-base-content text-base">{req.empName}</span> <span className="text-base-content/60 font-medium ml-1">({req.department})</span></div>
+                                <div className="text-sm"><span className="text-base-content/50 font-bold mr-1">📅</span><span className="font-semibold text-base-content/80">{shortDate(req.startDate)} - {shortDate(req.endDate)}</span></div>
+                                <div className="text-sm"><span className="text-base-content/50 font-bold mr-1">💬</span><span className="text-base-content/80 font-medium">{req.reason}</span></div>
+                                {req.actionReason && <div className="bg-red-50 text-red-600 p-3 rounded-xl mt-3 text-xs font-semibold border border-red-100 flex items-start gap-1.5"><span>⚠️</span><span>{req.actionReason}</span></div>}
                             </div>
-                            <div className="card-actions justify-end mt-4 pt-4 border-t border-base-200">
+                            <div className="flex gap-2.5 mt-5 pt-4 border-t border-black/5">
                                 {userProfile.role === 'Manager' && req.statusCode == 1 && req.managerEmail === userProfile.empEmail && (
-                                    <><button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="btn btn-sm btn-ghost text-error">ปฏิเสธ</button><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="btn btn-sm btn-primary">✅ อนุมัติ</button></>
+                                    <><button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="flex-1 btn btn-sm h-10 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-sm">ปฏิเสธ</button>
+                                    <button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.5] btn btn-sm h-10 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none font-bold text-sm">✅ อนุมัติ</button></>
                                 )}
                                 {(userProfile.role === 'HR' || userProfile.role === 'Admin') && (
                                     <>
-                                        {req.statusCode == 1 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="btn btn-sm btn-ghost text-error">ปฏิเสธแทน</button><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="btn btn-sm btn-primary">✅ อนุมัติ (แทน)</button></>}
-                                        {req.statusCode == 2 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="btn btn-sm btn-ghost text-error">ยกเลิก</button><button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="btn btn-sm btn-success text-white">✂️ รับทราบ & ตัดวันลา</button></>}
-                                        {userProfile.role === 'Admin' && req.statusCode == 3 && <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="btn btn-sm btn-outline btn-block mt-2">↩️ คืนสิทธิ</button>}
+                                        {req.statusCode == 1 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="flex-1 btn btn-sm h-10 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-sm">ปฏิเสธ (แทน)</button><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.5] btn btn-sm h-10 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none font-bold text-sm">✅ อนุมัติ (แทน)</button></>}
+                                        {req.statusCode == 2 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="flex-1 btn btn-sm h-10 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-sm">ยกเลิก</button><button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="flex-[1.5] btn btn-sm h-10 bg-[#C8E6C9] hover:bg-[#A5D6A7] text-[#2E7D32] border-none font-bold text-sm">✂️ รับทราบ & ตัดวันลา</button></>}
+                                        {userProfile.role === 'Admin' && req.statusCode == 3 && <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="w-full btn btn-sm h-10 bg-[#E0E0E0] hover:bg-[#BDBDBD] text-[#424242] border-none font-bold text-sm">↩️ คืนสิทธิให้พนักงาน</button>}
                                     </>
                                 )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // Component - List View
+            const LeaveCompactRow = ({ req }) => {
+                const style = getLeaveStyle(req.leaveType);
+                return (
+                    <div className={`p-4 mb-4 rounded-3xl shadow-md border ${style.border} ${style.bg} hover:shadow-lg transition-all`}>
+                        <div className="flex justify-between items-center gap-3">
+                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                                <Avatar url={req.pictureUrl} name={req.empName} sizeClass="w-12" />
+                                <div className="flex flex-col min-w-0">
+                                    <span className="font-bold text-base text-base-content truncate pr-2">{req.empName}</span>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className={`text-xs font-bold ${style.text}`}>{style.icon} {req.leaveType}</span>
+                                        <span className="text-xs font-semibold text-base-content/60">({req.totalDays} วัน)</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex flex-col items-end shrink-0 gap-2">
+                                <span className="text-xs font-semibold text-base-content/50 tracking-wider">#{req.reqId.replace('2026-', '')}</span>
+                                <div className="flex gap-2">
+                                    {userProfile.role === 'Manager' && req.statusCode == 1 && req.managerEmail === userProfile.empEmail && (
+                                        <><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="btn btn-sm px-3 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none text-base">✅</button>
+                                        <button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="btn btn-sm px-3 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none text-base">❌</button></>
+                                    )}
+                                    {(userProfile.role === 'HR' || userProfile.role === 'Admin') && (
+                                        <>
+                                            {req.statusCode == 1 && <><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="btn btn-sm px-3 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none text-base">✅</button><button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="btn btn-sm px-3 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none text-base">❌</button></>}
+                                            {req.statusCode == 2 && <><button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="btn btn-sm px-3 bg-[#C8E6C9] hover:bg-[#A5D6A7] text-[#2E7D32] border-none text-base">✂️</button><button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="btn btn-sm px-3 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none text-base">❌</button></>}
+                                            {userProfile.role === 'Admin' && req.statusCode == 3 && <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="btn btn-sm px-3 bg-[#E0E0E0] hover:bg-[#BDBDBD] text-[#424242] border-none text-base">↩️</button>}
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -240,7 +305,7 @@
                 return (
                     <div className="min-h-screen flex flex-col items-center justify-center bg-base-200">
                         <span className="loading loading-spinner loading-lg text-primary mb-4"></span>
-                        <p className="text-base-content/50 font-bold">กำลังเชื่อมต่อระบบ...</p>
+                        <p className="text-base-content/50 font-bold text-lg">กำลังเชื่อมต่อระบบ...</p>
                     </div>
                 );
             }
@@ -248,29 +313,41 @@
             if (currentPage === 'login') {
                 return (
                     <div className="hero min-h-screen bg-base-200">
-                        <div className="hero-content text-center">
+                        <div className="hero-content text-center w-full">
                             <div className="max-w-md w-full">
-                                <div className="card bg-base-100 shadow-xl p-8">
-                                    <div className="avatar mx-auto mb-4">
-                                        <div className="w-20 rounded-full bg-primary text-primary-content flex items-center justify-center text-4xl shadow-lg ring ring-primary ring-offset-base-100 ring-offset-2">🏢</div>
+                                <div className="card bg-base-100 shadow-xl p-8 rounded-[2rem]">
+                                    <div className="avatar mx-auto mb-6">
+                                        <div className="w-24 rounded-full bg-primary/10 text-primary flex items-center justify-center text-5xl shadow-sm">🏢</div>
                                     </div>
-                                    <h1 className="text-3xl font-bold text-base-content mb-1">HR-BKK</h1>
-                                    <p className="py-2 text-base-content/60 mb-6 font-medium">ระบบจัดการวันลาออนไลน์</p>
+                                    <h1 className="text-4xl font-bold text-base-content mb-2">HR-BKK</h1>
+                                    <p className="py-2 text-base-content/60 mb-8 font-medium text-lg">ระบบจัดการวันลาออนไลน์</p>
                                     
-                                    {/* แจ้งเตือนกรณีเปิดผ่าน LINE ให้กรอกอีเมลเพื่อผูกบัญชี */}
-                                    {lineUid && (
-                                        <div className="alert alert-info shadow-none rounded-xl mb-6 py-3 px-4 text-left bg-blue-50 text-blue-700 border-none">
-                                            <span className="text-xs font-bold">💡 กรอกอีเมลครั้งแรกเพื่อผูกบัญชีกับ LINE (ครั้งต่อไปเข้าใช้งานได้ทันที)</span>
-                                        </div>
+                                    {!isOtpMode ? (
+                                        <>
+                                            <div className="alert shadow-none rounded-xl mb-8 py-4 px-5 text-left bg-blue-50 text-blue-700 border-none">
+                                                <span className="text-[13px] font-bold">💡 กรุณา ใส่Emailพนักงานที่ได้ลงทะเบียนไว้ เพื่อLogin</span>
+                                            </div>
+                                            <form onSubmit={handleRequestOTP} className="form-control w-full">
+                                                <input type="email" placeholder="email@company.com" className="input input-bordered input-primary w-full text-center text-xl py-6 font-medium rounded-xl bg-base-50" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} required/>
+                                                <button type="submit" className="btn btn-primary w-full mt-8 h-14 text-xl shadow-md rounded-xl" disabled={isLoading}>
+                                                    {isLoading ? <span className="loading loading-spinner"></span> : "Login"}
+                                                </button>
+                                            </form>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="alert shadow-none rounded-xl mb-8 py-4 px-5 text-left bg-green-50 text-green-700 border-none">
+                                                <span className="text-[13px] font-bold">✅ ส่งรหัส OTP 4 หลักไปยังอีเมลของคุณแล้ว (โปรดตรวจสอบในอีเมล)</span>
+                                            </div>
+                                            <form onSubmit={handleVerifyOTP} className="form-control w-full">
+                                                <input type="text" placeholder="รหัส OTP 4 หลัก" maxLength="4" className="input input-bordered input-primary w-full text-center text-2xl py-6 font-bold rounded-xl bg-base-50 tracking-[0.3em]" value={otpInput} onChange={(e) => setOtpInput(e.target.value)} required/>
+                                                <button type="submit" className="btn btn-primary w-full mt-8 h-14 text-xl shadow-md rounded-xl" disabled={isLoading}>
+                                                    {isLoading ? <span className="loading loading-spinner"></span> : "ยืนยัน OTP"}
+                                                </button>
+                                                <button type="button" onClick={() => setIsOtpMode(false)} className="btn btn-ghost mt-2 text-sm text-base-content/50 hover:text-base-content">กลับไปแก้ไขอีเมล</button>
+                                            </form>
+                                        </>
                                     )}
-
-                                    <form onSubmit={handleLogin} className="form-control w-full">
-                                        <label className="label"><span className="label-text font-bold">อีเมลผู้ใช้งาน</span></label>
-                                        <input type="email" placeholder="email@company.com" className="input input-bordered input-primary w-full text-center text-lg font-medium" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} required/>
-                                        <button type="submit" className="btn btn-primary w-full mt-6 text-lg shadow-md" disabled={isLoading}>
-                                            {isLoading ? <span className="loading loading-spinner"></span> : (lineUid ? "ผูกบัญชีเข้าสู่ระบบ" : "เข้าสู่ระบบ")}
-                                        </button>
-                                    </form>
                                 </div>
                             </div>
                         </div>
@@ -282,16 +359,16 @@
                 const todayDate = (new Date(Date.now() - (new Date()).getTimezoneOffset() * 60000)).toISOString().split('T')[0];
                 return (
                     <div className="min-h-screen p-4 max-w-md mx-auto">
-                        <div className="navbar bg-base-100 rounded-box shadow-sm mb-6 mt-4"><div className="flex-1 px-4"><h2 className="text-xl font-bold">📝 เขียนใบคำขอลา</h2></div><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost">✕</button></div></div>
-                        <form onSubmit={handleSubmitLeave} className="card bg-base-100 shadow-sm border border-base-200">
-                            <div className="card-body p-6 space-y-4">
-                                <div className="form-control w-full"><label className="label"><span className="label-text font-bold text-base-content/70">ประเภทการลา</span></label><select className="select select-bordered select-primary w-full text-base font-bold text-primary" required value={formData.leaveType} onChange={(e) => setFormData({...formData, leaveType: e.target.value})}><option value="" disabled>-- โปรดเลือก --</option>{leaveTypes.map((type, idx) => <option key={idx} value={type.name}>{type.name}</option>)}</select></div>
+                        <div className="navbar bg-base-100 rounded-[1.5rem] shadow-sm mb-6 mt-4 border border-base-200"><div className="flex-1 px-4"><h2 className="text-2xl font-bold">📝 เขียนใบคำขอลา</h2></div><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost text-base-content/50 text-xl">✕</button></div></div>
+                        <form onSubmit={handleSubmitLeave} className="card bg-base-100 shadow-sm border border-base-200 rounded-[2rem]">
+                            <div className="card-body p-8 space-y-5">
+                                <div className="form-control w-full"><label className="label"><span className="label-text font-bold text-base-content/70 text-sm uppercase tracking-widest">ประเภทการลา</span></label><select className="select select-bordered w-full h-14 text-lg font-bold text-primary bg-base-50 rounded-xl" required value={formData.leaveType} onChange={(e) => setFormData({...formData, leaveType: e.target.value})}><option value="" disabled>-- โปรดเลือก --</option>{leaveTypes.map((type, idx) => <option key={idx} value={type.name}>{type.name}</option>)}</select></div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="form-control w-full"><label className="label"><span className="label-text font-bold text-base-content/70 text-xs">ตั้งแต่วันที่</span></label><input type="date" className="input input-bordered w-full text-sm font-semibold" required min={todayDate} value={formData.startDate} onChange={(e) => setFormData({...formData, startDate: e.target.value, endDate: e.target.value})}/><select className="select select-bordered select-sm w-full mt-2 text-xs font-bold text-base-content/70" value={startDayType} onChange={(e) => setStartDayType(e.target.value)}><option value="full">เต็มวัน</option><option value="half">ครึ่งวัน</option></select></div>
-                                    <div className="form-control w-full"><label className="label"><span className="label-text font-bold text-base-content/70 text-xs">ถึงวันที่</span></label><input type="date" className="input input-bordered w-full text-sm font-semibold" required min={formData.startDate || todayDate} value={formData.endDate} onChange={(e) => setFormData({...formData, endDate: e.target.value})}/><select className="select select-bordered select-sm w-full mt-2 text-xs font-bold text-base-content/70" value={endDayType} onChange={(e) => setEndDayType(e.target.value)}><option value="full">เต็มวัน</option><option value="half">ครึ่งวัน</option></select></div>
+                                    <div className="form-control w-full p-3 bg-base-200/50 rounded-2xl border border-base-200"><label className="label py-1"><span className="label-text font-bold text-base-content/60 text-[11px] uppercase tracking-widest">ตั้งแต่วันที่</span></label><input type="date" className="input input-sm w-full h-10 text-sm font-bold bg-transparent border-none px-1" required min={todayDate} value={formData.startDate} onChange={(e) => setFormData({...formData, startDate: e.target.value, endDate: e.target.value})}/><select className="select select-sm w-full h-10 mt-2 text-sm font-bold text-primary bg-white rounded-xl border-none shadow-sm" value={startDayType} onChange={(e) => setStartDayType(e.target.value)}><option value="full">เต็มวัน</option><option value="half">ครึ่งวัน</option></select></div>
+                                    <div className="form-control w-full p-3 bg-base-200/50 rounded-2xl border border-base-200"><label className="label py-1"><span className="label-text font-bold text-base-content/60 text-[11px] uppercase tracking-widest">ถึงวันที่</span></label><input type="date" className="input input-sm w-full h-10 text-sm font-bold bg-transparent border-none px-1" required min={formData.startDate || todayDate} value={formData.endDate} onChange={(e) => setFormData({...formData, endDate: e.target.value})}/><select className="select select-sm w-full h-10 mt-2 text-sm font-bold text-primary bg-white rounded-xl border-none shadow-sm" value={endDayType} onChange={(e) => setEndDayType(e.target.value)}><option value="full">เต็มวัน</option><option value="half">ครึ่งวัน</option></select></div>
                                 </div>
-                                <div className="form-control w-full"><label className="label"><span className="label-text font-bold text-base-content/70">เหตุผล</span></label><textarea className="textarea textarea-bordered h-24 text-base font-medium" required placeholder="ระบุเหตุผล..." value={formData.reason} onChange={(e) => setFormData({...formData, reason: e.target.value})}></textarea></div>
-                                <button type="submit" className="btn btn-primary w-full mt-4 text-lg shadow-sm" disabled={isLoading}>{isLoading ? <span className="loading loading-spinner"></span> : "ส่งคำขอ"}</button>
+                                <div className="form-control w-full"><label className="label"><span className="label-text font-bold text-base-content/70 text-sm uppercase tracking-widest">เหตุผล</span></label><textarea className="textarea textarea-bordered h-32 text-base font-medium rounded-xl bg-base-50 p-4" required placeholder="ระบุเหตุผลให้ชัดเจน..." value={formData.reason} onChange={(e) => setFormData({...formData, reason: e.target.value})}></textarea></div>
+                                <button type="submit" className="btn btn-primary w-full mt-6 h-14 text-xl shadow-md rounded-xl" disabled={isLoading}>{isLoading ? <span className="loading loading-spinner"></span> : "ส่งคำขอ"}</button>
                             </div>
                         </form>
                     </div>
@@ -308,32 +385,24 @@
                     return 0;
                 });
                 const filterControls = (
-                    <div className="flex gap-2 w-full px-4 mb-4">
-                        { (userProfile.role === 'Admin' || userProfile.role === 'HR') && (
-                            <select className="select select-bordered select-sm w-1/2 font-medium" value={selectedDept} onChange={(e) => setSelectedDept(e.target.value)}><option value="all">ทุกแผนก</option>{departments.map((d, i) => <option key={i} value={d}>{d}</option>)}</select>
-                        )}
-                        <select className={`select select-bordered select-sm font-medium ${userProfile.role === 'Manager' ? 'w-full' : 'w-1/2'}`} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                            <option value="reqId_desc">ล่าสุด-เก่า</option><option value="reqId_asc">เก่า-ล่าสุด</option><option value="name_asc">ชื่อ (ก-ฮ)</option><option value="name_desc">ชื่อ (ฮ-ก)</option>
-                        </select>
+                    <div className="flex gap-3 w-full px-4 mb-4">
+                        { (userProfile.role === 'Admin' || userProfile.role === 'HR') && (<select className="select select-bordered w-1/2 font-bold rounded-xl text-sm h-12" value={selectedDept} onChange={(e) => setSelectedDept(e.target.value)}><option value="all">ทุกแผนก</option>{departments.map((d, i) => <option key={i} value={d}>{d}</option>)}</select>)}
+                        <select className={`select select-bordered font-bold rounded-xl text-sm h-12 ${userProfile.role === 'Manager' ? 'w-full' : 'w-1/2'}`} value={sortBy} onChange={(e) => setSortBy(e.target.value)}><option value="reqId_desc">ล่าสุด-เก่า</option><option value="reqId_asc">เก่า-ล่าสุด</option><option value="name_asc">ชื่อ (ก-ฮ)</option><option value="name_desc">ชื่อ (ฮ-ก)</option></select>
+                        <div className="join w-1/3 h-12 bg-base-100 rounded-xl shadow-sm border border-base-200"><button className={`join-item btn h-full w-1/2 px-1 text-lg border-none ${viewMode === 'board' ? 'bg-primary/10 text-primary' : 'bg-transparent text-base-content/40'}`} onClick={() => setViewMode('board')}>📦</button><button className={`join-item btn h-full w-1/2 px-1 text-lg border-none ${viewMode === 'list' ? 'bg-primary/10 text-primary' : 'bg-transparent text-base-content/40'}`} onClick={() => setViewMode('list')}>📋</button></div>
                     </div>
                 );
 
                 if (userProfile.role === 'Admin' || userProfile.role === 'HR') {
-                    const kanbanColumns = [
-                        { id: 1, title: statusCodes[1] || "รอหัวหน้า", bgClass: "bg-warning/10" },
-                        { id: 2, title: statusCodes[2] || "รอ HR", bgClass: "bg-info/10" },
-                        { id: 3, title: statusCodes[3] || "เสร็จสิ้น", bgClass: "bg-success/10" },
-                        { id: 5, title: statusCodes[5] || "ยกเลิก", bgClass: "bg-base-200" }
-                    ];
+                    const kanbanColumns = [{ id: 1, title: statusCodes[1] || "รอหัวหน้า", bgClass: "bg-slate-100", textClass: "text-[#F57F17]" },{ id: 2, title: statusCodes[2] || "รอ HR", bgClass: "bg-slate-100", textClass: "text-[#1565C0]" },{ id: 3, title: statusCodes[3] || "เสร็จสิ้น", bgClass: "bg-slate-100", textClass: "text-[#2E7D32]" },{ id: 5, title: statusCodes[5] || "ยกเลิก", bgClass: "bg-slate-100", textClass: "text-slate-500" }];
                     return (
                         <div className="min-h-screen pb-10">
-                            <div className="pt-6 pb-2 max-w-7xl mx-auto"><div className="navbar px-4 mb-2"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-circle btn-ghost">◀</button></div><div className="flex-1 px-2"><h2 className="text-2xl font-bold">Board ใบลา</h2></div></div>{filterControls}</div>
+                            <div className="pt-6 pb-2 max-w-7xl mx-auto"><div className="navbar px-4 mb-4"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-circle btn-ghost bg-base-100 shadow-sm border border-base-200 text-xl">◀</button></div><div className="flex-1 px-4"><h2 className="text-3xl font-bold">Board ใบลา</h2></div></div>{filterControls}</div>
                             {isLoading && requests.length === 0 ? <div className="text-center py-20 text-base-content/50"><span className="loading loading-spinner loading-lg"></span></div> : (
-                                <div className="flex overflow-x-auto gap-4 snap-x snap-mandatory hide-scrollbar pb-6 w-full px-4 max-w-7xl mx-auto">
+                                <div className="flex overflow-x-auto gap-5 snap-x snap-mandatory hide-scrollbar pb-6 w-full px-4 max-w-7xl mx-auto mt-2">
                                     {kanbanColumns.map(col => (
-                                        <div key={col.id} className={`shrink-0 w-[88vw] md:w-[350px] snap-center rounded-[2rem] p-4 flex flex-col border border-base-200 ${col.bgClass}`} style={{maxHeight: 'calc(100vh - 190px)'}}>
-                                            <div className="flex justify-between items-center mb-5 px-2 mt-2 shrink-0"><h3 className="font-bold text-2xl">{col.title}</h3><div className="badge badge-lg shadow-sm border-none bg-base-100 font-bold">{processedRequests.filter(r => r.statusCode == col.id).length}</div></div>
-                                            <div className="overflow-y-auto hide-scrollbar flex-1 pb-4 pr-1">{processedRequests.filter(r => r.statusCode == col.id).map(req => <LeaveCard key={req.reqId} req={req} />)}{processedRequests.filter(r => r.statusCode == col.id).length === 0 && <div className="text-center py-12 text-base-content/40 text-sm font-medium border-2 border-dashed border-base-300 rounded-2xl mx-1 bg-base-100/50">ไม่มีรายการ</div>}</div>
+                                        <div key={col.id} className={`shrink-0 w-[90vw] md:w-[380px] snap-center rounded-[2rem] p-5 flex flex-col border border-slate-200 shadow-inner ${col.bgClass}`} style={{maxHeight: 'calc(100vh - 210px)'}}>
+                                            <div className="flex justify-between items-center mb-6 px-2 mt-2 shrink-0"><h3 className={`font-black text-2xl ${col.textClass}`}>{col.title}</h3><div className="badge badge-lg shadow-sm border border-slate-200 bg-white font-bold text-base px-4 py-3">{processedRequests.filter(r => r.statusCode == col.id).length}</div></div>
+                                            <div className="overflow-y-auto hide-scrollbar flex-1 pb-4 pr-1">{processedRequests.filter(r => r.statusCode == col.id).map(req => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}{processedRequests.filter(r => r.statusCode == col.id).length === 0 && <div className="text-center py-16 text-base-content/40 text-base font-medium border-2 border-dashed border-slate-300 rounded-2xl mx-1 bg-slate-50/50">ไม่มีรายการ</div>}</div>
                                         </div>
                                     ))}
                                 </div>
@@ -347,15 +416,11 @@
                     const others = processedRequests.filter(r => !(r.statusCode == 1 && r.managerEmail === userProfile.empEmail));
                     return (
                         <div className="min-h-screen pb-20 p-4 max-w-md mx-auto">
-                            <div className="navbar bg-base-100 rounded-box shadow-sm mb-4 mt-4"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost">◀</button></div><div className="flex-1 px-4"><h2 className="text-xl font-bold">จัดการคำขอลา</h2></div></div><div className="px-1">{filterControls}</div>
+                            <div className="navbar bg-base-100 rounded-[1.5rem] shadow-sm mb-6 mt-4 border border-base-200"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost text-base-content/50 text-xl">◀</button></div><div className="flex-1 px-4"><h2 className="text-2xl font-bold">จัดการคำขอลา</h2></div></div><div className="px-1 mb-6">{filterControls}</div>
                             {isLoading && requests.length === 0 ? <div className="text-center py-10 text-base-content/50"><span className="loading loading-spinner loading-lg"></span></div> : (
                                 <div className="px-1 mt-4">
-                                    <div className="bg-warning/10 p-5 rounded-3xl mb-8 border border-warning/20">
-                                        <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-xl text-warning-content">รออนุมัติ</h3><div className="badge badge-warning badge-lg font-bold">{pendingMyApproval.length}</div></div>
-                                        <div className="space-y-4">{pendingMyApproval.length === 0 ? <div className="text-center py-10 text-base-content/50 bg-base-100 rounded-2xl text-sm font-medium shadow-sm border border-base-200">ไม่มีรายการรอดำเนินการ 🎉</div> : pendingMyApproval.map((req) => <LeaveCard key={req.reqId} req={req} />)}</div>
-                                    </div>
-                                    <h3 className="font-bold text-lg text-base-content/50 mb-4 ml-2">ประวัติในทีม</h3>
-                                    <div className="space-y-4">{others.length === 0 ? <div className="text-center py-6 text-base-content/40">ไม่มีประวัติ</div> : others.map((req) => <LeaveCard key={req.reqId} req={req} />)}</div>
+                                    <div className="bg-slate-100 p-5 rounded-[2rem] mb-10 border border-slate-200 shadow-inner"><div className="flex justify-between items-center mb-6 px-2"><h3 className="font-black text-2xl text-[#F57F17]">รออนุมัติ</h3><div className="badge badge-warning badge-lg font-bold border-none shadow-sm px-4 py-3 text-base">{pendingMyApproval.length}</div></div><div className="space-y-4">{pendingMyApproval.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-2xl text-base font-medium shadow-sm border border-slate-200">ไม่มีรายการรอดำเนินการ 🎉</div> : pendingMyApproval.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}</div></div>
+                                    <h3 className="font-bold text-xl text-base-content/50 mb-5 ml-2">ประวัติในทีม</h3><div className="space-y-4">{others.length === 0 ? <div className="text-center py-8 text-base-content/40 text-base">ไม่มีประวัติ</div> : others.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}</div>
                                 </div>
                             )}
                         </div>
@@ -364,8 +429,8 @@
 
                 return (
                     <div className="min-h-screen pb-20 p-4 max-w-md mx-auto">
-                        <div className="navbar bg-base-100 rounded-box shadow-sm mb-4 mt-4"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost">◀</button></div><div className="flex-1 px-4"><h2 className="text-xl font-bold">ประวัติการลา</h2></div></div><div className="px-1">{filterControls}</div>
-                        <div className="px-1 mt-4">{isLoading && requests.length === 0 ? <div className="text-center py-10 text-base-content/50"><span className="loading loading-spinner loading-lg"></span></div> : (<div className="space-y-4">{processedRequests.map((req) => <LeaveCard key={req.reqId} req={req} />)}</div>)}</div>
+                        <div className="navbar bg-base-100 rounded-[1.5rem] shadow-sm mb-6 mt-4 border border-base-200"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost text-base-content/50 text-xl">◀</button></div><div className="flex-1 px-4"><h2 className="text-2xl font-bold">ประวัติการลา</h2></div></div><div className="px-1 mb-6">{filterControls}</div>
+                        <div className="px-1 mt-4">{isLoading && requests.length === 0 ? <div className="text-center py-10 text-base-content/50"><span className="loading loading-spinner loading-lg"></span></div> : (<div className="space-y-4">{processedRequests.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}</div>)}</div>
                     </div>
                 );
             }
@@ -373,27 +438,22 @@
             return (
                 <div className="min-h-screen pb-20 p-5 max-w-md mx-auto">
                     <div className="mb-10 pt-10 pl-2">
-                        <p className="text-sm font-bold text-primary mb-2 tracking-wider">ยินดีต้อนรับ</p>
-                        <h2 className="text-4xl font-extrabold text-base-content mb-4">{userProfile['nickname'] || userProfile['fullName']}</h2>
-                        <div className="badge badge-ghost badge-lg gap-2 py-4 px-5 font-semibold text-sm border-base-300 shadow-sm bg-base-100">{userProfile['position']} <span className="opacity-30">|</span> {userProfile['role']}</div>
+                        <p className="text-base font-bold text-primary/80 mb-2 tracking-wider">ยินดีต้อนรับ</p>
+                        <h2 className="text-5xl font-extrabold text-base-content mb-5 tracking-tight flex items-center gap-4"><Avatar url={lineProfile?.pictureUrl} name={userProfile['nickname'] || userProfile['fullName']} sizeClass="w-16" />{userProfile['nickname'] || userProfile['fullName']}</h2>
+                        <div className="inline-flex items-center gap-3 py-2.5 px-5 font-bold text-sm border border-base-200 shadow-sm bg-base-100 rounded-full mt-2"><span className="text-base-content/80">{userProfile['position']}</span><span className="opacity-30">|</span><span className="text-base-content/50">{userProfile['role']}</span></div>
                     </div>
-
-                    <h3 className="text-xs font-bold text-base-content/50 mb-4 ml-2 uppercase tracking-widest">โควต้าวันลา</h3>
+                    <h3 className="text-xs font-bold text-base-content/40 mb-4 ml-2 uppercase tracking-widest">โควต้าวันลา</h3>
                     <div className="grid grid-cols-3 gap-3 mb-12">
-                        <div className="card bg-base-100 shadow-sm border border-base-200"><div className="card-body p-4 items-center text-center"><div className="text-xs font-bold text-base-content/50 mb-1">ลากิจ</div><div className="text-3xl font-black text-primary my-2">{userProfile['remainPersonal'] || 0}</div><div className="w-full text-[10px] font-bold text-base-content/40 flex justify-between border-t border-base-200 pt-2 mt-2"><span>สิทธิ {userProfile['quotaPersonal'] || 0}</span><span className="text-primary/70">ใช้ {userProfile['usedPersonal'] || 0}</span></div></div></div>
-                        <div className="card bg-base-100 shadow-sm border border-base-200"><div className="card-body p-4 items-center text-center"><div className="text-xs font-bold text-base-content/50 mb-1">ลาป่วย</div><div className="text-3xl font-black text-secondary my-2">{userProfile['remainSick'] || 0}</div><div className="w-full text-[10px] font-bold text-base-content/40 flex justify-between border-t border-base-200 pt-2 mt-2"><span>สิทธิ {userProfile['quotaSick'] || 0}</span><span className="text-secondary/70">ใช้ {userProfile['usedSick'] || 0}</span></div></div></div>
-                        <div className="card bg-base-100 shadow-sm border border-base-200"><div className="card-body p-4 items-center text-center"><div className="text-xs font-bold text-base-content/50 mb-1">พักร้อน</div><div className="text-3xl font-black text-accent my-2">{userProfile['remainAnnual'] || 0}</div><div className="w-full text-[10px] font-bold text-base-content/40 flex justify-between border-t border-base-200 pt-2 mt-2"><span>สิทธิ {userProfile['quotaAnnual'] || 0}</span><span className="text-accent/70">ใช้ {userProfile['usedAnnual'] || 0}</span></div></div></div>
+                        <div className="card bg-[#FFF3E0] shadow-md border border-[#FFE0B2] rounded-3xl"><div className="card-body p-4 items-center text-center justify-between min-h-[150px]"><div className="text-sm font-bold text-[#E65100]/60 mb-1">ลากิจ</div><div className="text-5xl font-black text-[#E65100] my-2 leading-none">{userProfile['remainPersonal'] || 0}</div><div className="w-full text-[11px] font-bold text-[#E65100]/50 flex justify-between border-t border-black/5 pt-3 mt-2"><span>สิทธิ {userProfile['quotaPersonal'] || 0}</span><span className="text-[#E65100]">ใช้ {userProfile['usedPersonal'] || 0}</span></div></div></div>
+                        <div className="card bg-[#E3F2FD] shadow-md border border-[#BBDEFB] rounded-3xl"><div className="card-body p-4 items-center text-center justify-between min-h-[150px]"><div className="text-sm font-bold text-[#1565C0]/60 mb-1">ลาป่วย</div><div className="text-5xl font-black text-[#1565C0] my-2 leading-none">{userProfile['remainSick'] || 0}</div><div className="w-full text-[11px] font-bold text-[#1565C0]/50 flex justify-between border-t border-black/5 pt-3 mt-2"><span>สิทธิ {userProfile['quotaSick'] || 0}</span><span className="text-[#1565C0]">ใช้ {userProfile['usedSick'] || 0}</span></div></div></div>
+                        <div className="card bg-[#E8F5E9] shadow-md border border-[#C8E6C9] rounded-3xl"><div className="card-body p-4 items-center text-center justify-between min-h-[150px]"><div className="text-sm font-bold text-[#2E7D32]/60 mb-1">พักร้อน</div><div className="text-5xl font-black text-[#2E7D32] my-2 leading-none">{userProfile['remainAnnual'] || 0}</div><div className="w-full text-[11px] font-bold text-[#2E7D32]/50 flex justify-between border-t border-black/5 pt-3 mt-2"><span>สิทธิ {userProfile['quotaAnnual'] || 0}</span><span className="text-[#2E7D32]">ใช้ {userProfile['usedAnnual'] || 0}</span></div></div></div>
                     </div>
-                    
-                    <h3 className="text-xs font-bold text-base-content/50 mb-4 ml-2 uppercase tracking-widest">เมนู</h3>
-                    <div className="space-y-4">
-                        <button onClick={() => setCurrentPage('form')} className="card bg-base-100 shadow-sm border border-base-200 w-full hover:shadow-md transition-all active:scale-[0.98]"><div className="card-body p-5 flex-row items-center justify-between"><div className="flex items-center gap-4"><div className="avatar placeholder"><div className="bg-primary text-primary-content rounded-xl w-12 text-xl shadow-sm">📝</div></div><div className="text-left"><h4 className="font-bold text-base-content text-lg mb-1">เขียนใบคำขอลา</h4><p className="text-xs text-base-content/60 font-medium">ยื่นแบบฟอร์มการลาใหม่</p></div></div><span className="text-base-content/30 text-2xl">›</span></div></button>
-                        <button onClick={() => { fetchRequests(); setCurrentPage('feed'); }} className="card bg-base-100 shadow-sm border border-base-200 w-full hover:shadow-md transition-all active:scale-[0.98]"><div className="card-body p-5 flex-row items-center justify-between"><div className="flex items-center gap-4"><div className="avatar placeholder"><div className="bg-secondary text-secondary-content rounded-xl w-12 text-xl shadow-sm">📋</div></div><div className="text-left"><h4 className="font-bold text-base-content text-lg mb-1">{userProfile.role === 'Employee' ? 'ประวัติการลา' : 'Board จัดการใบลา'}</h4><p className="text-xs text-base-content/60 font-medium">{userProfile.role === 'Employee' ? 'ดูประวัติการลาของคุณ' : 'ตรวจสอบและอนุมัติรายการ'}</p></div></div><span className="text-base-content/30 text-2xl">›</span></div></button>
+                    <h3 className="text-xs font-bold text-base-content/40 mb-4 ml-2 uppercase tracking-widest">เมนู</h3>
+                    <div className="space-y-5">
+                        <button onClick={() => setCurrentPage('form')} className="card bg-base-100 shadow-md border border-base-200 w-full hover:shadow-lg transition-all active:scale-[0.98] rounded-[2.5rem]"><div className="card-body p-6 flex-row items-center justify-between"><div className="flex items-center gap-5"><div className="avatar placeholder"><div className="bg-primary/10 text-primary rounded-2xl w-16 h-16 text-3xl shadow-inner border border-primary/10">📝</div></div><div className="text-left"><h4 className="font-black text-base-content text-2xl mb-1">เขียนใบคำขอลา</h4><p className="text-sm text-base-content/50 font-bold">ยื่นแบบฟอร์มการลาใหม่</p></div></div><span className="text-base-content/20 text-4xl font-light">›</span></div></button>
+                        <button onClick={() => { fetchRequests(); setCurrentPage('feed'); }} className="card bg-base-100 shadow-md border border-base-200 w-full hover:shadow-lg transition-all active:scale-[0.98] rounded-[2.5rem]"><div className="card-body p-6 flex-row items-center justify-between"><div className="flex items-center gap-5"><div className="avatar placeholder"><div className="bg-warning/10 text-warning rounded-2xl w-16 h-16 text-3xl shadow-inner border border-warning/10">📋</div></div><div className="text-left"><h4 className="font-black text-base-content text-2xl mb-1">{userProfile.role === 'Employee' ? 'ประวัติการลา' : 'Board จัดการใบลา'}</h4><p className="text-sm text-base-content/50 font-bold">{userProfile.role === 'Employee' ? 'ดูประวัติการลาของคุณ' : 'ตรวจสอบและอนุมัติรายการ'}</p></div></div><span className="text-base-content/20 text-4xl font-light">›</span></div></button>
                     </div>
-
-                    <div className="text-center mt-12 mb-8">
-                        <button onClick={() => { liff.logout(); setCurrentPage('login'); }} className="btn btn-ghost btn-sm text-base-content/50 hover:text-error">ออกจากระบบ (เปลี่ยนบัญชี)</button>
-                    </div>
+                    <div className="text-center mt-16 mb-6"><button onClick={() => { liff.logout(); setCurrentPage('login'); }} className="btn btn-ghost btn-sm text-base-content/40 hover:text-error tracking-wider uppercase text-xs font-bold">ออกจากระบบ (เปลี่ยนบัญชี LINE)</button></div>
                 </div>
             );
         }
