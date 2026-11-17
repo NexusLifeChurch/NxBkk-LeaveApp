@@ -5,12 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HR-BKK Leave App</title>
     
-    <!-- React & Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Tailwind CSS, DaisyUI, LINE LIFF & SweetAlert2 -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -294,15 +292,35 @@
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop-soft" onClick={() => setIsModalOpen(false)}>
                         <div className="bg-white w-full max-w-sm rounded-[2rem] p-6 shadow-2xl relative" onClick={e => e.stopPropagation()}>
                             <button onClick={() => setIsModalOpen(false)} className="btn btn-sm btn-circle btn-ghost absolute right-4 top-4 text-slate-400">✕</button>
+                            
                             <div className="flex flex-col items-center mb-6 mt-2">
                                 <Avatar url={req.pictureUrl} name={req.empName} sizeClass="w-20" />
                                 <h3 className="font-bold text-xl text-slate-800 mt-3 text-center">{req.empName}</h3>
                                 <p className="text-sm text-slate-500 font-medium">แผนก {req.department}</p>
                             </div>
+                            
                             <div className="space-y-3">
-                                <div className="bg-[#FFF3E0] p-4 rounded-2xl flex justify-between items-center border border-[#FFE0B2]"><div className="flex items-center gap-2"><span className="text-xl">📝</span><div><p className="text-[10px] font-bold text-[#E65100]/60 leading-none">ลากิจ</p><p className="text-sm font-bold text-[#E65100]">สิทธิ {req.qPersonal || 0} (ใช้ {req.uPersonal || 0})</p></div></div><div className="text-2xl font-black text-[#E65100]">{req.rPersonal || 0}</div></div>
-                                <div className="bg-[#E3F2FD] p-4 rounded-2xl flex justify-between items-center border border-[#BBDEFB]"><div className="flex items-center gap-2"><span className="text-xl">💊</span><div><p className="text-[10px] font-bold text-[#1565C0]/60 leading-none">ลาป่วย</p><p className="text-sm font-bold text-[#1565C0]">สิทธิ {req.qSick || 0} (ใช้ {req.uSick || 0})</p></div></div><div className="text-2xl font-black text-[#1565C0]">{req.rSick || 0}</div></div>
-                                <div className="bg-[#E8F5E9] p-4 rounded-2xl flex justify-between items-center border border-[#C8E6C9]"><div className="flex items-center gap-2"><span className="text-xl">🌴</span><div><p className="text-[10px] font-bold text-[#2E7D32]/60 leading-none">พักร้อน</p><p className="text-sm font-bold text-[#2E7D32]">สิทธิ {req.qAnnual || 0} (ใช้ {req.uAnnual || 0})</p></div></div><div className="text-2xl font-black text-[#2E7D32]">{req.rAnnual || 0}</div></div>
+                                <div className="bg-[#FFF3E0] p-4 rounded-2xl flex justify-between items-center border border-[#FFE0B2]">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">📝</span>
+                                        <div><p className="text-[10px] font-bold text-[#E65100]/60 leading-none">ลากิจ</p><p className="text-sm font-bold text-[#E65100]">สิทธิ {req.qPersonal || 0} (ใช้ {req.uPersonal || 0})</p></div>
+                                    </div>
+                                    <div className="text-2xl font-black text-[#E65100]">{req.rPersonal || 0}</div>
+                                </div>
+                                <div className="bg-[#E3F2FD] p-4 rounded-2xl flex justify-between items-center border border-[#BBDEFB]">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">💊</span>
+                                        <div><p className="text-[10px] font-bold text-[#1565C0]/60 leading-none">ลาป่วย</p><p className="text-sm font-bold text-[#1565C0]">สิทธิ {req.qSick || 0} (ใช้ {req.uSick || 0})</p></div>
+                                    </div>
+                                    <div className="text-2xl font-black text-[#1565C0]">{req.rSick || 0}</div>
+                                </div>
+                                <div className="bg-[#E8F5E9] p-4 rounded-2xl flex justify-between items-center border border-[#C8E6C9]">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">🌴</span>
+                                        <div><p className="text-[10px] font-bold text-[#2E7D32]/60 leading-none">พักร้อน</p><p className="text-sm font-bold text-[#2E7D32]">สิทธิ {req.qAnnual || 0} (ใช้ {req.uAnnual || 0})</p></div>
+                                    </div>
+                                    <div className="text-2xl font-black text-[#2E7D32]">{req.rAnnual || 0}</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -347,13 +365,13 @@
                             {!isPersonalView && (
                                 <div className="flex gap-2 mt-4 pt-3 border-t border-black/5">
                                     {userProfile.role === 'Manager' && req.statusCode == 1 && req.managerEmail?.toLowerCase() === userProfile.empEmail?.toLowerCase() && (
-                                        <><button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="flex-1 btn btn-sm min-h-0 h-9 bg-[#FFCDD2] text-[#C62828] border-none font-bold text-xs">❌ ปฏิเสธ</button><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#B3E5FC] text-[#0277BD] border-none font-bold text-xs">✅ อนุมัติ</button></>
+                                        <><button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="flex-1 btn btn-sm min-h-0 h-9 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-xs">❌ ปฏิเสธ</button><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none font-bold text-xs">✅ อนุมัติ</button></>
                                     )}
                                     {(userProfile.role === 'HR' || userProfile.role === 'Admin') && (
                                         <>
-                                            {req.statusCode == 1 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="flex-1 btn btn-sm min-h-0 h-9 bg-[#FFCDD2] text-[#C62828] border-none font-bold text-xs">❌ ปฏิเสธ (แทน)</button><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#B3E5FC] text-[#0277BD] border-none font-bold text-xs">✅ อนุมัติ (แทน)</button></>}
-                                            {req.statusCode == 2 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="flex-[0.8] btn btn-sm min-h-0 h-9 bg-[#FFCDD2] text-[#C62828] border-none font-bold text-xs px-1">❌ ยกเลิก</button><button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#C8E6C9] text-[#2E7D32] border-none font-bold text-xs px-1">✂️ ทราบ+ตัดวันลา</button></>}
-                                            {userProfile.role === 'Admin' && req.statusCode == 3 && <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="w-full btn btn-sm min-h-0 h-9 bg-[#E0E0E0] text-[#424242] border-none font-bold text-xs">↩️ คืนสิทธิให้พนักงาน</button>}
+                                            {req.statusCode == 1 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="flex-1 btn btn-sm min-h-0 h-9 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-xs">❌ ปฏิเสธ (แทน)</button><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none font-bold text-xs">✅ อนุมัติ (แทน)</button></>}
+                                            {req.statusCode == 2 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="flex-[0.8] btn btn-sm min-h-0 h-9 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-xs px-1">❌ ยกเลิก</button><button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#C8E6C9] hover:bg-[#A5D6A7] text-[#2E7D32] border-none font-bold text-xs px-1 tracking-tight">✂️ ทราบ+ตัดวันลา</button></>}
+                                            {userProfile.role === 'Admin' && req.statusCode == 3 && <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="w-full btn btn-sm min-h-0 h-9 bg-[#E0E0E0] hover:bg-[#BDBDBD] text-[#424242] border-none font-bold text-xs">↩️ คืนสิทธิให้พนักงาน</button>}
                                         </>
                                     )}
                                 </div>
