@@ -15,12 +15,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
     <style>
-        body { font-family: 'Prompt', sans-serif; }
+        body { font-family: 'Prompt', sans-serif; background-color: #f3f4f6; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .app-container { max-width: 480px; margin: 0 auto; min-height: 100vh; background-color: #fafafa; position: relative; overflow-x: hidden; }
+        
+        /* Modal Backdrop */
+        .modal-backdrop-soft { background-color: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); }
     </style>
 </head>
-<body class="bg-base-200 min-h-screen">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
@@ -30,7 +34,6 @@
         function App() {
             const [currentPage, setCurrentPage] = React.useState('loading');
             
-            // สถานะสำหรับการ Login & OTP
             const [emailInput, setEmailInput] = React.useState('');
             const [otpInput, setOtpInput] = React.useState('');
             const [isOtpMode, setIsOtpMode] = React.useState(false);
@@ -51,6 +54,10 @@
             const [startDayType, setStartDayType] = React.useState('full');
             const [endDayType, setEndDayType] = React.useState('full');
 
+            // --- State สำหรับระบบ Popup (Modal) ---
+            const [selectedUserQuota, setSelectedUserQuota] = React.useState(null);
+            const [isModalOpen, setIsModalOpen] = React.useState(false);
+
             React.useEffect(() => {
                 const initLiff = async () => {
                     try {
@@ -59,7 +66,6 @@
                             const profile = await liff.getProfile();
                             setLineProfile({ uid: profile.userId, pictureUrl: profile.pictureUrl });
                             
-                            // เช็คก่อนว่า UID นี้ผูกบัญชีไว้หรือยัง
                             const response = await fetch(API_URL, {
                                 method: 'POST',
                                 body: JSON.stringify({ action: 'loginWithLine', lineUid: profile.userId, pictureUrl: profile.pictureUrl })
@@ -83,47 +89,32 @@
                 if (LIFF_ID) initLiff();
             }, []);
 
-            // 1. กดปุ่ม Login (เพื่อขอ OTP)
             const handleRequestOTP = async (e) => {
                 e.preventDefault();
                 setIsLoading(true);
                 try {
                     const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'requestOTP', email: emailInput }) });
                     const result = await response.json();
-                    
-                    if(result.success) {
-                        setIsOtpMode(true);
-                    } else { 
-                        alert(result.message || "ไม่พบอีเมลพนักงานนี้ในระบบ"); 
-                    }
+                    if(result.success) setIsOtpMode(true);
+                    else alert(result.message || "ไม่พบอีเมลพนักงานนี้ในระบบ"); 
                 } catch (error) { alert("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ"); }
                 setIsLoading(false);
             };
 
-            // 2. กดปุ่ม ยืนยัน OTP
             const handleVerifyOTP = async (e) => {
                 e.preventDefault();
                 setIsLoading(true);
                 try {
-                    const payload = { 
-                        action: 'verifyOTP', 
-                        email: emailInput, 
-                        otp: otpInput, 
-                        lineUid: lineProfile?.uid || "", 
-                        pictureUrl: lineProfile?.pictureUrl || "" 
-                    };
+                    const payload = { action: 'verifyOTP', email: emailInput, otp: otpInput, lineUid: lineProfile?.uid || "", pictureUrl: lineProfile?.pictureUrl || "" };
                     const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
                     const result = await response.json();
-                    
                     if(result.success) {
                         setUserProfile(result.profile);
                         fetchSettings(); 
                         setCurrentPage('dashboard');
                         setIsOtpMode(false);
                         setOtpInput('');
-                    } else { 
-                        alert(result.message || "รหัส OTP ไม่ถูกต้อง"); 
-                    }
+                    } else alert(result.message || "รหัส OTP ไม่ถูกต้อง"); 
                 } catch (error) { alert("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ"); }
                 setIsLoading(false);
             };
@@ -144,9 +135,7 @@
                     const result = await response.json();
                     if(result.success) {
                         setRequests(result.data);
-                        if (userProfile.role === 'Admin' || userProfile.role === 'HR') {
-                            setDepartments([...new Set(result.data.map(r => r.department))].filter(Boolean));
-                        }
+                        if (userProfile.role === 'Admin' || userProfile.role === 'HR') setDepartments([...new Set(result.data.map(r => r.department))].filter(Boolean));
                     }
                 } catch (error) {}
                 setIsLoading(false);
@@ -156,7 +145,7 @@
                 let comment = "";
                 let confirmMsg = "";
                 if (actionType === 'approve_to_hr') confirmMsg = `อนุมัติคำขอลา\n${req.empName} (${req.totalDays} วัน)\n\nยืนยันส่งให้ HR ตัดวันลา?`;
-                else if (actionType === 'acknowledge_hr') confirmMsg = `ยืนยันตัดวันลา\n${req.empName} (${req.totalDays} วัน)?`;
+                else if (actionType === 'acknowledge_hr') confirmMsg = `ยืนยันรับทราบและตัดวันลา\n${req.empName} (${req.totalDays} วัน)?`;
                 else if (actionType.includes('cancel')) {
                     confirmMsg = actionType === 'cancel_admin_return' ? "ยืนยันยกเลิกและคืนสิทธิวันลาให้พนักงาน?" : "ยืนยันยกเลิกใบคำขอนี้?";
                     comment = prompt(confirmMsg + "\nระบุเหตุผล:");
@@ -186,9 +175,11 @@
                     if (startDayType === 'half') diffDays -= 0.5;
                     if (endDayType === 'half') diffDays -= 0.5;
                 }
+
                 if (diffDays <= 0) { alert("ระบุวันที่ลาไม่ถูกต้อง"); setIsLoading(false); return; }
 
                 const payload = { empEmail: userProfile.empEmail, leaveType: formData.leaveType, startDate: formData.startDate, endDate: formData.endDate, totalDays: diffDays, reason: formData.reason };
+
                 try {
                     const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'submitLeaveRequest', payload: payload }) });
                     const result = await response.json();
@@ -201,7 +192,7 @@
                 setIsLoading(false);
             };
 
-            const shortDate = (dateStr) => new Date(dateStr).toLocaleDateString('th-TH', {day: 'numeric', month: 'short', year: 'numeric'});
+            const shortDate = (dateStr) => new Date(dateStr).toLocaleDateString('th-TH', {day: 'numeric', month: 'short', year: '2-digit'});
 
             const getLeaveStyle = (type) => {
                 if(type.includes('กิจ')) return { bg: 'bg-[#FFF3E0]', border: 'border-[#FFE0B2]', text: 'text-[#E65100]', icon: '📝', badge: 'bg-[#FFE0B2] text-[#E65100]' };
@@ -211,48 +202,137 @@
                 return { bg: 'bg-[#F5F5F5]', border: 'border-[#E0E0E0]', text: 'text-[#424242]', icon: '📄', badge: 'bg-[#E0E0E0] text-[#424242]' };
             };
 
-            const Avatar = ({ url, name, sizeClass="w-12" }) => (
-                <div className="avatar">
-                    <div className={`${sizeClass} rounded-full ring ring-base-100 ring-offset-base-100 ring-offset-2 shadow-sm`}>
-                        <img src={url || `https://ui-avatars.com/api/?name=${name}&background=random&color=fff`} alt="Profile" />
+            // อัปเดต ui-avatars ให้ตัวอักษรใหญ่ขึ้นและชัดเจนขึ้น (&font-size=0.6)
+            const Avatar = ({ url, name, sizeClass="w-10", onClick=null }) => (
+                <div className={`avatar ${onClick ? 'cursor-pointer hover:opacity-80 transition' : ''}`} onClick={onClick}>
+                    <div className={`${sizeClass} rounded-full ring ring-white ring-offset-white shadow-sm bg-base-200`}>
+                        <img src={url || `https://ui-avatars.com/api/?name=${name}&background=random&color=fff&font-size=0.6&bold=true`} alt="Profile" />
                     </div>
                 </div>
             );
 
-            // Component - Board View
+            // ==========================================
+            // Component: Modal แสดงโควต้าวันลาพนักงาน
+            // ==========================================
+            const QuotaModal = () => {
+                if (!isModalOpen || !selectedUserQuota) return null;
+                const req = selectedUserQuota;
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop-soft" onClick={() => setIsModalOpen(false)}>
+                        <div className="bg-white w-full max-w-sm rounded-[2rem] p-6 shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                            <button onClick={() => setIsModalOpen(false)} className="btn btn-sm btn-circle btn-ghost absolute right-4 top-4 text-slate-400">✕</button>
+                            
+                            <div className="flex flex-col items-center mb-6 mt-2">
+                                <Avatar url={req.pictureUrl} name={req.empName} sizeClass="w-20" />
+                                <h3 className="font-bold text-xl text-slate-800 mt-3 text-center">{req.empName}</h3>
+                                <p className="text-sm text-slate-500 font-medium">แผนก {req.department}</p>
+                            </div>
+                            
+                            <div className="space-y-3">
+                                <div className="bg-[#FFF3E0] p-4 rounded-2xl flex justify-between items-center border border-[#FFE0B2]">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">📝</span>
+                                        <div><p className="text-[10px] font-bold text-[#E65100]/60 leading-none">ลากิจ</p><p className="text-sm font-bold text-[#E65100]">สิทธิ {req.qPersonal || 0} (ใช้ {req.uPersonal || 0})</p></div>
+                                    </div>
+                                    <div className="text-2xl font-black text-[#E65100]">{req.rPersonal || 0}</div>
+                                </div>
+                                <div className="bg-[#E3F2FD] p-4 rounded-2xl flex justify-between items-center border border-[#BBDEFB]">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">💊</span>
+                                        <div><p className="text-[10px] font-bold text-[#1565C0]/60 leading-none">ลาป่วย</p><p className="text-sm font-bold text-[#1565C0]">สิทธิ {req.qSick || 0} (ใช้ {req.uSick || 0})</p></div>
+                                    </div>
+                                    <div className="text-2xl font-black text-[#1565C0]">{req.rSick || 0}</div>
+                                </div>
+                                <div className="bg-[#E8F5E9] p-4 rounded-2xl flex justify-between items-center border border-[#C8E6C9]">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">🌴</span>
+                                        <div><p className="text-[10px] font-bold text-[#2E7D32]/60 leading-none">พักร้อน</p><p className="text-sm font-bold text-[#2E7D32]">สิทธิ {req.qAnnual || 0} (ใช้ {req.uAnnual || 0})</p></div>
+                                    </div>
+                                    <div className="text-2xl font-black text-[#2E7D32]">{req.rAnnual || 0}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // ==========================================
+            // โหมด 1: แบบการ์ด (Board View)
+            // ==========================================
             const LeaveCard = ({ req }) => {
                 const style = getLeaveStyle(req.leaveType);
+                
+                const openQuotaModal = () => {
+                    setSelectedUserQuota(req);
+                    setIsModalOpen(true);
+                };
+
                 return (
-                    <div className={`card ${style.bg} ${style.border} shadow-md mb-5 hover:shadow-lg transition-all rounded-3xl`}>
-                        <div className="card-body p-5">
-                            <div className="flex justify-between items-center mb-4 pb-3 border-b border-black/5">
-                                <div className="flex items-center gap-3">
-                                    <Avatar url={req.pictureUrl} name={req.empName} sizeClass="w-14" />
-                                    <div>
-                                        <h3 className={`font-bold text-xl leading-tight flex items-center gap-1 ${style.text}`}>
-                                            <span>{style.icon}</span> {req.leaveType}
-                                        </h3>
-                                        <div className="text-xs text-base-content/60 font-semibold uppercase tracking-widest mt-1">REF. {req.reqId.replace('2026-', '')}</div>
+                    <div className={`card ${style.bg} ${style.border} shadow-sm mb-4 hover:shadow-md transition-all rounded-[1.25rem]`}>
+                        <div className="card-body p-4">
+                            {/* Header: ผู้ยื่น + รูป */}
+                            <div className="flex justify-between items-center mb-3">
+                                <div className="flex items-center gap-3 w-full">
+                                    <div onClick={openQuotaModal} title="กดเพื่อดูสิทธิคงเหลือ"><Avatar url={req.pictureUrl} name={req.empName} sizeClass="w-10" onClick={openQuotaModal}/></div>
+                                    <div className="flex flex-col flex-1 min-w-0">
+                                        <div className="flex justify-between items-start w-full">
+                                            <span className="font-bold text-base text-slate-800 truncate pr-2 leading-tight">{req.empName}</span>
+                                            <span className="text-[10px] font-bold text-slate-400 tracking-wider">#{req.reqId.replace('2026-', '')}</span>
+                                        </div>
+                                        <span className="text-[11px] text-slate-500 font-medium">แผนก {req.department}</span>
                                     </div>
                                 </div>
-                                <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${style.badge}`}>{req.totalDays} วัน</div>
                             </div>
-                            <div className="space-y-2 mt-1">
-                                <div className="text-sm"><span className="font-bold text-base-content text-base">{req.empName}</span> <span className="text-base-content/60 font-medium ml-1">({req.department})</span></div>
-                                <div className="text-sm"><span className="text-base-content/50 font-bold mr-1">📅</span><span className="font-semibold text-base-content/80">{shortDate(req.startDate)} - {shortDate(req.endDate)}</span></div>
-                                <div className="text-sm"><span className="text-base-content/50 font-bold mr-1">💬</span><span className="text-base-content/80 font-medium">{req.reason}</span></div>
-                                {req.actionReason && <div className="bg-red-50 text-red-600 p-3 rounded-xl mt-3 text-xs font-semibold border border-red-100 flex items-start gap-1.5"><span>⚠️</span><span>{req.actionReason}</span></div>}
+                            
+                            {/* Content: วันที่, ประเภท, เหตุผล */}
+                            <div className="bg-white/60 p-3 rounded-xl border border-black/5 space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <div className={`flex items-center gap-1.5 font-bold text-[13px] ${style.text}`}>
+                                        <span>{style.icon}</span> {req.leaveType}
+                                    </div>
+                                    <div className={`px-2 py-0.5 rounded text-[11px] font-bold ${style.badge}`}>{req.totalDays} วัน</div>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <span className="text-[13px] opacity-70">📅</span>
+                                    <span className="font-semibold text-slate-700 text-xs mt-0.5">{shortDate(req.startDate)} - {shortDate(req.endDate)}</span>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <span className="text-[13px] opacity-70">💬</span>
+                                    <span className="font-medium text-slate-600 text-xs mt-0.5">{req.reason}</span>
+                                </div>
                             </div>
-                            <div className="flex gap-2.5 mt-5 pt-4 border-t border-black/5">
+                            
+                            {req.actionReason && (
+                                <div className="bg-red-50 text-red-600 p-2.5 rounded-xl mt-3 text-[11px] font-semibold border border-red-100 flex items-start gap-1">
+                                    <span className="text-sm">⚠️</span><span>{req.actionReason}</span>
+                                </div>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-2 mt-4">
                                 {userProfile.role === 'Manager' && req.statusCode == 1 && req.managerEmail === userProfile.empEmail && (
-                                    <><button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="flex-1 btn btn-sm h-10 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-sm">ปฏิเสธ</button>
-                                    <button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.5] btn btn-sm h-10 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none font-bold text-sm">✅ อนุมัติ</button></>
+                                    <>
+                                        <button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="flex-1 btn btn-sm min-h-0 h-9 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-xs">❌ ปฏิเสธ</button>
+                                        <button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none font-bold text-xs">✅ อนุมัติ</button>
+                                    </>
                                 )}
                                 {(userProfile.role === 'HR' || userProfile.role === 'Admin') && (
                                     <>
-                                        {req.statusCode == 1 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="flex-1 btn btn-sm h-10 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-sm">ปฏิเสธ (แทน)</button><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.5] btn btn-sm h-10 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none font-bold text-sm">✅ อนุมัติ (แทน)</button></>}
-                                        {req.statusCode == 2 && <><button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="flex-1 btn btn-sm h-10 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-sm">ยกเลิก</button><button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="flex-[1.5] btn btn-sm h-10 bg-[#C8E6C9] hover:bg-[#A5D6A7] text-[#2E7D32] border-none font-bold text-sm">✂️ รับทราบ & ตัดวันลา</button></>}
-                                        {userProfile.role === 'Admin' && req.statusCode == 3 && <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="w-full btn btn-sm h-10 bg-[#E0E0E0] hover:bg-[#BDBDBD] text-[#424242] border-none font-bold text-sm">↩️ คืนสิทธิให้พนักงาน</button>}
+                                        {req.statusCode == 1 && (
+                                            <>
+                                                <button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="flex-1 btn btn-sm min-h-0 h-9 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-xs">❌ ปฏิเสธ (แทน)</button>
+                                                <button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none font-bold text-xs">✅ อนุมัติ (แทน)</button>
+                                            </>
+                                        )}
+                                        {req.statusCode == 2 && (
+                                            <>
+                                                <button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="flex-[0.8] btn btn-sm min-h-0 h-9 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none font-bold text-xs px-1">❌ ยกเลิก</button>
+                                                <button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="flex-[1.2] btn btn-sm min-h-0 h-9 bg-[#C8E6C9] hover:bg-[#A5D6A7] text-[#2E7D32] border-none font-bold text-xs px-1 tracking-tight">✂️ ทราบ+ตัดวันลา</button>
+                                            </>
+                                        )}
+                                        {userProfile.role === 'Admin' && req.statusCode == 3 && (
+                                            <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="w-full btn btn-sm min-h-0 h-9 bg-[#E0E0E0] hover:bg-[#BDBDBD] text-[#424242] border-none font-bold text-xs">↩️ คืนสิทธิให้พนักงาน</button>
+                                        )}
                                     </>
                                 )}
                             </div>
@@ -261,34 +341,56 @@
                 );
             };
 
-            // Component - List View
+            // ==========================================
+            // โหมด 2: แบบรายการย่อ (List View)
+            // ==========================================
             const LeaveCompactRow = ({ req }) => {
                 const style = getLeaveStyle(req.leaveType);
+                
+                const openQuotaModal = () => {
+                    setSelectedUserQuota(req);
+                    setIsModalOpen(true);
+                };
+
                 return (
-                    <div className={`p-4 mb-4 rounded-3xl shadow-md border ${style.border} ${style.bg} hover:shadow-lg transition-all`}>
-                        <div className="flex justify-between items-center gap-3">
-                            <div className="flex items-center gap-4 flex-1 min-w-0">
-                                <Avatar url={req.pictureUrl} name={req.empName} sizeClass="w-12" />
+                    <div className={`p-3 mb-3 rounded-[1.25rem] shadow-sm border ${style.border} ${style.bg} hover:shadow-md transition-all`}>
+                        <div className="flex justify-between items-center gap-2">
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div onClick={openQuotaModal} title="กดเพื่อดูสิทธิคงเหลือ"><Avatar url={req.pictureUrl} name={req.empName} sizeClass="w-9" onClick={openQuotaModal}/></div>
                                 <div className="flex flex-col min-w-0">
-                                    <span className="font-bold text-base text-base-content truncate pr-2">{req.empName}</span>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <span className={`text-xs font-bold ${style.text}`}>{style.icon} {req.leaveType}</span>
-                                        <span className="text-xs font-semibold text-base-content/60">({req.totalDays} วัน)</span>
+                                    <span className="font-bold text-[13px] text-slate-800 truncate pr-1">{req.empName}</span>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                        <span className={`text-[10px] font-bold ${style.text}`}>{style.icon} {req.leaveType}</span>
+                                        <span className="text-[10px] font-semibold text-slate-500">({req.totalDays} วัน)</span>
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex flex-col items-end shrink-0 gap-2">
-                                <span className="text-xs font-semibold text-base-content/50 tracking-wider">#{req.reqId.replace('2026-', '')}</span>
-                                <div className="flex gap-2">
+                            <div className="flex flex-col items-end shrink-0 gap-1.5">
+                                <span className="text-[9px] font-bold text-slate-400 tracking-wider">#{req.reqId.replace('2026-', '')}</span>
+                                <div className="flex gap-1.5">
                                     {userProfile.role === 'Manager' && req.statusCode == 1 && req.managerEmail === userProfile.empEmail && (
-                                        <><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="btn btn-sm px-3 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none text-base">✅</button>
-                                        <button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="btn btn-sm px-3 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none text-base">❌</button></>
+                                        <>
+                                            <button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="btn btn-xs px-2.5 min-h-0 h-7 bg-[#B3E5FC] text-[#0277BD] border-none">✅</button>
+                                            <button onClick={() => handleLeaveAction(req, 'cancel_by_manager')} className="btn btn-xs px-2.5 min-h-0 h-7 bg-[#FFCDD2] text-[#C62828] border-none">❌</button>
+                                        </>
                                     )}
                                     {(userProfile.role === 'HR' || userProfile.role === 'Admin') && (
                                         <>
-                                            {req.statusCode == 1 && <><button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="btn btn-sm px-3 bg-[#B3E5FC] hover:bg-[#81D4FA] text-[#0277BD] border-none text-base">✅</button><button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="btn btn-sm px-3 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none text-base">❌</button></>}
-                                            {req.statusCode == 2 && <><button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="btn btn-sm px-3 bg-[#C8E6C9] hover:bg-[#A5D6A7] text-[#2E7D32] border-none text-base">✂️</button><button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="btn btn-sm px-3 bg-[#FFCDD2] hover:bg-[#EF9A9A] text-[#C62828] border-none text-base">❌</button></>}
-                                            {userProfile.role === 'Admin' && req.statusCode == 3 && <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="btn btn-sm px-3 bg-[#E0E0E0] hover:bg-[#BDBDBD] text-[#424242] border-none text-base">↩️</button>}
+                                            {req.statusCode == 1 && (
+                                                <>
+                                                    <button onClick={() => handleLeaveAction(req, 'approve_to_hr')} className="btn btn-xs px-2.5 min-h-0 h-7 bg-[#B3E5FC] text-[#0277BD] border-none">✅</button>
+                                                    <button onClick={() => handleLeaveAction(req, 'cancel_by_hr_sub')} className="btn btn-xs px-2.5 min-h-0 h-7 bg-[#FFCDD2] text-[#C62828] border-none">❌</button>
+                                                </>
+                                            )}
+                                            {req.statusCode == 2 && (
+                                                <>
+                                                    <button onClick={() => handleLeaveAction(req, 'acknowledge_hr')} className="btn btn-xs px-2.5 min-h-0 h-7 bg-[#C8E6C9] text-[#2E7D32] border-none">✂️</button>
+                                                    <button onClick={() => handleLeaveAction(req, 'cancel_by_hr')} className="btn btn-xs px-2.5 min-h-0 h-7 bg-[#FFCDD2] text-[#C62828] border-none">❌</button>
+                                                </>
+                                            )}
+                                            {userProfile.role === 'Admin' && req.statusCode == 3 && (
+                                                <button onClick={() => handleLeaveAction(req, 'cancel_admin_return')} className="btn btn-xs px-2.5 min-h-0 h-7 bg-[#E0E0E0] text-[#424242] border-none">↩️</button>
+                                            )}
                                         </>
                                     )}
                                 </div>
@@ -303,52 +405,52 @@
             // ==========================================
             if (currentPage === 'loading') {
                 return (
-                    <div className="min-h-screen flex flex-col items-center justify-center bg-base-200">
-                        <span className="loading loading-spinner loading-lg text-primary mb-4"></span>
-                        <p className="text-base-content/50 font-bold text-lg">กำลังเชื่อมต่อระบบ...</p>
+                    <div className="app-container flex flex-col items-center justify-center">
+                        <span className="loading loading-spinner loading-lg text-primary mb-3"></span>
+                        <p className="text-slate-400 font-bold text-sm">กำลังเชื่อมต่อระบบ...</p>
                     </div>
                 );
             }
 
             if (currentPage === 'login') {
                 return (
-                    <div className="hero min-h-screen bg-base-200">
-                        <div className="hero-content text-center w-full">
-                            <div className="max-w-md w-full">
-                                <div className="card bg-base-100 shadow-xl p-8 rounded-[2rem]">
-                                    <div className="avatar mx-auto mb-6">
-                                        <div className="w-24 rounded-full bg-primary/10 text-primary flex items-center justify-center text-5xl shadow-sm">🏢</div>
+                    <div className="app-container flex items-center justify-center p-5">
+                        <div className="w-full">
+                            <div className="card bg-white shadow-xl p-8 rounded-[2rem] border border-slate-100">
+                                <div className="avatar mx-auto mb-4 mt-2">
+                                    <div className="w-24 rounded-full bg-slate-50 flex items-center justify-center shadow-inner">
+                                        <img src="Leavelogo.png" alt="Logo" className="w-16 object-contain" onError={(e) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '<span class="text-4xl">🏢</span>'; }} />
                                     </div>
-                                    <h1 className="text-4xl font-bold text-base-content mb-2">HR-BKK</h1>
-                                    <p className="py-2 text-base-content/60 mb-8 font-medium text-lg">ระบบจัดการวันลาออนไลน์</p>
-                                    
-                                    {!isOtpMode ? (
-                                        <>
-                                            <div className="alert shadow-none rounded-xl mb-8 py-4 px-5 text-left bg-blue-50 text-blue-700 border-none">
-                                                <span className="text-[13px] font-bold">💡 กรุณา ใส่Emailพนักงานที่ได้ลงทะเบียนไว้ เพื่อLogin</span>
-                                            </div>
-                                            <form onSubmit={handleRequestOTP} className="form-control w-full">
-                                                <input type="email" placeholder="email@company.com" className="input input-bordered input-primary w-full text-center text-xl py-6 font-medium rounded-xl bg-base-50" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} required/>
-                                                <button type="submit" className="btn btn-primary w-full mt-8 h-14 text-xl shadow-md rounded-xl" disabled={isLoading}>
-                                                    {isLoading ? <span className="loading loading-spinner"></span> : "Login"}
-                                                </button>
-                                            </form>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="alert shadow-none rounded-xl mb-8 py-4 px-5 text-left bg-green-50 text-green-700 border-none">
-                                                <span className="text-[13px] font-bold">✅ ส่งรหัส OTP 4 หลักไปยังอีเมลของคุณแล้ว (โปรดตรวจสอบในอีเมล)</span>
-                                            </div>
-                                            <form onSubmit={handleVerifyOTP} className="form-control w-full">
-                                                <input type="text" placeholder="รหัส OTP 4 หลัก" maxLength="4" className="input input-bordered input-primary w-full text-center text-2xl py-6 font-bold rounded-xl bg-base-50 tracking-[0.3em]" value={otpInput} onChange={(e) => setOtpInput(e.target.value)} required/>
-                                                <button type="submit" className="btn btn-primary w-full mt-8 h-14 text-xl shadow-md rounded-xl" disabled={isLoading}>
-                                                    {isLoading ? <span className="loading loading-spinner"></span> : "ยืนยัน OTP"}
-                                                </button>
-                                                <button type="button" onClick={() => setIsOtpMode(false)} className="btn btn-ghost mt-2 text-sm text-base-content/50 hover:text-base-content">กลับไปแก้ไขอีเมล</button>
-                                            </form>
-                                        </>
-                                    )}
                                 </div>
+                                <h1 className="text-4xl font-black text-slate-800 text-center mb-1 tracking-tight">HR-BKK</h1>
+                                <p className="text-center text-slate-500 mb-8 font-medium text-base">ระบบจัดการวันลาออนไลน์</p>
+                                
+                                {!isOtpMode ? (
+                                    <>
+                                        <div className="alert shadow-none rounded-xl mb-6 py-4 px-4 text-left bg-blue-50/50 text-blue-700 border border-blue-100">
+                                            <span className="text-xs font-bold leading-relaxed">💡 กรุณาใส่ Email พนักงานที่ลงทะเบียนไว้ เพื่อ Login</span>
+                                        </div>
+                                        <form onSubmit={handleRequestOTP} className="form-control w-full">
+                                            <input type="email" placeholder="email@company.com" className="input input-bordered input-primary w-full text-center text-lg py-6 font-medium rounded-xl bg-slate-50" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} required/>
+                                            <button type="submit" className="btn btn-primary w-full mt-6 h-14 text-lg rounded-xl shadow-md font-bold" disabled={isLoading}>
+                                                {isLoading ? <span className="loading loading-spinner"></span> : "Login"}
+                                            </button>
+                                        </form>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="alert shadow-none rounded-xl mb-6 py-4 px-4 text-left bg-green-50 text-green-700 border border-green-100">
+                                            <span className="text-xs font-bold leading-relaxed">✅ ส่งรหัส OTP 4 หลักไปยังอีเมลของคุณแล้ว</span>
+                                        </div>
+                                        <form onSubmit={handleVerifyOTP} className="form-control w-full">
+                                            <input type="number" placeholder="OTP 4 หลัก" className="input input-bordered input-primary w-full text-center text-2xl py-6 font-bold rounded-xl bg-slate-50 tracking-widest" value={otpInput} onChange={(e) => setOtpInput(e.target.value)} required/>
+                                            <button type="submit" className="btn btn-primary w-full mt-6 h-14 text-lg rounded-xl shadow-md font-bold" disabled={isLoading}>
+                                                {isLoading ? <span className="loading loading-spinner"></span> : "ยืนยัน OTP"}
+                                            </button>
+                                            <button type="button" onClick={() => setIsOtpMode(false)} className="btn btn-ghost mt-3 text-xs text-slate-400 font-bold">กลับไปแก้ไขอีเมล</button>
+                                        </form>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -358,17 +460,47 @@
             if (currentPage === 'form') {
                 const todayDate = (new Date(Date.now() - (new Date()).getTimezoneOffset() * 60000)).toISOString().split('T')[0];
                 return (
-                    <div className="min-h-screen p-4 max-w-md mx-auto">
-                        <div className="navbar bg-base-100 rounded-[1.5rem] shadow-sm mb-6 mt-4 border border-base-200"><div className="flex-1 px-4"><h2 className="text-2xl font-bold">📝 เขียนใบคำขอลา</h2></div><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost text-base-content/50 text-xl">✕</button></div></div>
-                        <form onSubmit={handleSubmitLeave} className="card bg-base-100 shadow-sm border border-base-200 rounded-[2rem]">
-                            <div className="card-body p-8 space-y-5">
-                                <div className="form-control w-full"><label className="label"><span className="label-text font-bold text-base-content/70 text-sm uppercase tracking-widest">ประเภทการลา</span></label><select className="select select-bordered w-full h-14 text-lg font-bold text-primary bg-base-50 rounded-xl" required value={formData.leaveType} onChange={(e) => setFormData({...formData, leaveType: e.target.value})}><option value="" disabled>-- โปรดเลือก --</option>{leaveTypes.map((type, idx) => <option key={idx} value={type.name}>{type.name}</option>)}</select></div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="form-control w-full p-3 bg-base-200/50 rounded-2xl border border-base-200"><label className="label py-1"><span className="label-text font-bold text-base-content/60 text-[11px] uppercase tracking-widest">ตั้งแต่วันที่</span></label><input type="date" className="input input-sm w-full h-10 text-sm font-bold bg-transparent border-none px-1" required min={todayDate} value={formData.startDate} onChange={(e) => setFormData({...formData, startDate: e.target.value, endDate: e.target.value})}/><select className="select select-sm w-full h-10 mt-2 text-sm font-bold text-primary bg-white rounded-xl border-none shadow-sm" value={startDayType} onChange={(e) => setStartDayType(e.target.value)}><option value="full">เต็มวัน</option><option value="half">ครึ่งวัน</option></select></div>
-                                    <div className="form-control w-full p-3 bg-base-200/50 rounded-2xl border border-base-200"><label className="label py-1"><span className="label-text font-bold text-base-content/60 text-[11px] uppercase tracking-widest">ถึงวันที่</span></label><input type="date" className="input input-sm w-full h-10 text-sm font-bold bg-transparent border-none px-1" required min={formData.startDate || todayDate} value={formData.endDate} onChange={(e) => setFormData({...formData, endDate: e.target.value})}/><select className="select select-sm w-full h-10 mt-2 text-sm font-bold text-primary bg-white rounded-xl border-none shadow-sm" value={endDayType} onChange={(e) => setEndDayType(e.target.value)}><option value="full">เต็มวัน</option><option value="half">ครึ่งวัน</option></select></div>
+                    <div className="app-container p-4">
+                        <div className="navbar bg-white rounded-2xl shadow-sm mb-5 mt-2 border border-slate-100 px-3">
+                            <div className="flex-1"><h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><img src="Leavelogo.png" className="w-7 h-7 object-contain" onError={(e) => e.target.style.display='none'}/> เขียนใบคำขอลา</h2></div>
+                            <div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-sm btn-circle btn-ghost text-slate-400 text-lg">✕</button></div>
+                        </div>
+                        
+                        <form onSubmit={handleSubmitLeave} className="card bg-white shadow-sm border border-slate-100 rounded-[1.5rem]">
+                            <div className="card-body p-6 space-y-4">
+                                <div className="form-control w-full">
+                                    <label className="label py-1.5"><span className="label-text font-bold text-slate-500 text-xs uppercase tracking-widest">ประเภทการลา</span></label>
+                                    <select className="select select-bordered w-full h-12 text-base font-bold text-slate-700 bg-slate-50 rounded-xl" required value={formData.leaveType} onChange={(e) => setFormData({...formData, leaveType: e.target.value})}>
+                                        <option value="" disabled>-- โปรดเลือก --</option>
+                                        {leaveTypes.map((type, idx) => <option key={idx} value={type.name}>{type.name}</option>)}
+                                    </select>
                                 </div>
-                                <div className="form-control w-full"><label className="label"><span className="label-text font-bold text-base-content/70 text-sm uppercase tracking-widest">เหตุผล</span></label><textarea className="textarea textarea-bordered h-32 text-base font-medium rounded-xl bg-base-50 p-4" required placeholder="ระบุเหตุผลให้ชัดเจน..." value={formData.reason} onChange={(e) => setFormData({...formData, reason: e.target.value})}></textarea></div>
-                                <button type="submit" className="btn btn-primary w-full mt-6 h-14 text-xl shadow-md rounded-xl" disabled={isLoading}>{isLoading ? <span className="loading loading-spinner"></span> : "ส่งคำขอ"}</button>
+                                
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="form-control w-full p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                                        <label className="label py-1"><span className="label-text font-bold text-slate-500 text-[10px] uppercase tracking-widest">ตั้งแต่วันที่</span></label>
+                                        <input type="date" className="input input-sm w-full h-9 text-[13px] font-bold bg-transparent border-none px-1 text-slate-700" required min={todayDate} value={formData.startDate} onChange={(e) => setFormData({...formData, startDate: e.target.value, endDate: e.target.value})}/>
+                                        <select className="select select-sm w-full h-9 mt-1 text-xs font-bold text-blue-600 bg-white rounded-lg border-none shadow-sm" value={startDayType} onChange={(e) => setStartDayType(e.target.value)}>
+                                            <option value="full">เต็มวัน</option><option value="half">ครึ่งวัน</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-control w-full p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                                        <label className="label py-1"><span className="label-text font-bold text-slate-500 text-[10px] uppercase tracking-widest">ถึงวันที่</span></label>
+                                        <input type="date" className="input input-sm w-full h-9 text-[13px] font-bold bg-transparent border-none px-1 text-slate-700" required min={formData.startDate || todayDate} value={formData.endDate} onChange={(e) => setFormData({...formData, endDate: e.target.value})}/>
+                                        <select className="select select-sm w-full h-9 mt-1 text-xs font-bold text-blue-600 bg-white rounded-lg border-none shadow-sm" value={endDayType} onChange={(e) => setEndDayType(e.target.value)}>
+                                            <option value="full">เต็มวัน</option><option value="half">ครึ่งวัน</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div className="form-control w-full">
+                                    <label className="label py-1.5"><span className="label-text font-bold text-slate-500 text-xs uppercase tracking-widest">เหตุผล</span></label>
+                                    <textarea className="textarea textarea-bordered h-28 text-[15px] font-medium rounded-xl bg-slate-50 p-4" required placeholder="ระบุเหตุผลให้ชัดเจน..." value={formData.reason} onChange={(e) => setFormData({...formData, reason: e.target.value})}></textarea>
+                                </div>
+                                
+                                <button type="submit" className="btn btn-primary w-full mt-4 h-12 text-lg font-bold rounded-xl shadow-md" disabled={isLoading}>
+                                    {isLoading ? <span className="loading loading-spinner"></span> : "ส่งคำขอ"}
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -384,29 +516,61 @@
                     if (sortBy === 'name_desc') return b.empName.localeCompare(a.empName);
                     return 0;
                 });
+
                 const filterControls = (
-                    <div className="flex gap-3 w-full px-4 mb-4">
-                        { (userProfile.role === 'Admin' || userProfile.role === 'HR') && (<select className="select select-bordered w-1/2 font-bold rounded-xl text-sm h-12" value={selectedDept} onChange={(e) => setSelectedDept(e.target.value)}><option value="all">ทุกแผนก</option>{departments.map((d, i) => <option key={i} value={d}>{d}</option>)}</select>)}
-                        <select className={`select select-bordered font-bold rounded-xl text-sm h-12 ${userProfile.role === 'Manager' ? 'w-full' : 'w-1/2'}`} value={sortBy} onChange={(e) => setSortBy(e.target.value)}><option value="reqId_desc">ล่าสุด-เก่า</option><option value="reqId_asc">เก่า-ล่าสุด</option><option value="name_asc">ชื่อ (ก-ฮ)</option><option value="name_desc">ชื่อ (ฮ-ก)</option></select>
-                        <div className="join w-1/3 h-12 bg-base-100 rounded-xl shadow-sm border border-base-200"><button className={`join-item btn h-full w-1/2 px-1 text-lg border-none ${viewMode === 'board' ? 'bg-primary/10 text-primary' : 'bg-transparent text-base-content/40'}`} onClick={() => setViewMode('board')}>📦</button><button className={`join-item btn h-full w-1/2 px-1 text-lg border-none ${viewMode === 'list' ? 'bg-primary/10 text-primary' : 'bg-transparent text-base-content/40'}`} onClick={() => setViewMode('list')}>📋</button></div>
+                    <div className="flex gap-2 w-full px-4 mb-4">
+                        { (userProfile.role === 'Admin' || userProfile.role === 'HR') && (
+                            <select className="select select-bordered select-sm w-[40%] font-bold rounded-lg text-xs bg-white h-9" value={selectedDept} onChange={(e) => setSelectedDept(e.target.value)}>
+                                <option value="all">ทุกแผนก</option>
+                                {departments.map((d, i) => <option key={i} value={d}>{d}</option>)}
+                            </select>
+                        )}
+                        <select className={`select select-bordered select-sm font-bold rounded-lg text-xs bg-white h-9 ${userProfile.role === 'Manager' ? 'w-[75%]' : 'w-[40%]'}`} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                            <option value="reqId_desc">ล่าสุด-เก่า</option><option value="reqId_asc">เก่า-ล่าสุด</option>
+                            <option value="name_asc">ชื่อ (ก-ฮ)</option><option value="name_desc">ชื่อ (ฮ-ก)</option>
+                        </select>
+                        <div className="join w-[20%] h-9 bg-white rounded-lg shadow-sm border border-slate-200">
+                            <button className={`join-item btn btn-xs h-full w-1/2 px-0 text-sm border-none ${viewMode === 'board' ? 'bg-primary/10 text-primary' : 'bg-transparent text-slate-400'}`} onClick={() => setViewMode('board')}>📦</button>
+                            <button className={`join-item btn btn-xs h-full w-1/2 px-0 text-sm border-none ${viewMode === 'list' ? 'bg-primary/10 text-primary' : 'bg-transparent text-slate-400'}`} onClick={() => setViewMode('list')}>📋</button>
+                        </div>
                     </div>
                 );
 
                 if (userProfile.role === 'Admin' || userProfile.role === 'HR') {
-                    const kanbanColumns = [{ id: 1, title: statusCodes[1] || "รอหัวหน้า", bgClass: "bg-slate-100", textClass: "text-[#F57F17]" },{ id: 2, title: statusCodes[2] || "รอ HR", bgClass: "bg-slate-100", textClass: "text-[#1565C0]" },{ id: 3, title: statusCodes[3] || "เสร็จสิ้น", bgClass: "bg-slate-100", textClass: "text-[#2E7D32]" },{ id: 5, title: statusCodes[5] || "ยกเลิก", bgClass: "bg-slate-100", textClass: "text-slate-500" }];
+                    const kanbanColumns = [
+                        { id: 1, title: statusCodes[1] || "รอหัวหน้า", bgClass: "bg-slate-100", textClass: "text-[#F57F17]" },
+                        { id: 2, title: statusCodes[2] || "รอ HR", bgClass: "bg-slate-100", textClass: "text-[#1565C0]" },
+                        { id: 3, title: statusCodes[3] || "เสร็จสิ้น", bgClass: "bg-slate-100", textClass: "text-[#2E7D32]" },
+                        { id: 5, title: statusCodes[5] || "ยกเลิก", bgClass: "bg-slate-100", textClass: "text-slate-500" }
+                    ];
+
                     return (
-                        <div className="min-h-screen pb-10">
-                            <div className="pt-6 pb-2 max-w-7xl mx-auto"><div className="navbar px-4 mb-4"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-circle btn-ghost bg-base-100 shadow-sm border border-base-200 text-xl">◀</button></div><div className="flex-1 px-4"><h2 className="text-3xl font-bold">Board ใบลา</h2></div></div>{filterControls}</div>
-                            {isLoading && requests.length === 0 ? <div className="text-center py-20 text-base-content/50"><span className="loading loading-spinner loading-lg"></span></div> : (
-                                <div className="flex overflow-x-auto gap-5 snap-x snap-mandatory hide-scrollbar pb-6 w-full px-4 max-w-7xl mx-auto mt-2">
+                        <div className="app-container pb-10">
+                            <div className="pt-4 pb-1 w-full">
+                                <div className="navbar px-4 mb-2 min-h-12">
+                                    <div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-circle btn-sm btn-ghost bg-white shadow-sm border border-slate-200 text-slate-500">◀</button></div>
+                                    <div className="flex-1 px-3"><h2 className="text-2xl font-black text-slate-800 tracking-tight">Board ใบลา</h2></div>
+                                </div>
+                                {filterControls}
+                            </div>
+
+                            {isLoading && requests.length === 0 ? <div className="text-center py-20 text-slate-400"><span className="loading loading-spinner loading-md"></span></div> : (
+                                <div className="flex overflow-x-auto gap-4 snap-x snap-mandatory hide-scrollbar pb-6 w-full px-4">
                                     {kanbanColumns.map(col => (
-                                        <div key={col.id} className={`shrink-0 w-[90vw] md:w-[380px] snap-center rounded-[2rem] p-5 flex flex-col border border-slate-200 shadow-inner ${col.bgClass}`} style={{maxHeight: 'calc(100vh - 210px)'}}>
-                                            <div className="flex justify-between items-center mb-6 px-2 mt-2 shrink-0"><h3 className={`font-black text-2xl ${col.textClass}`}>{col.title}</h3><div className="badge badge-lg shadow-sm border border-slate-200 bg-white font-bold text-base px-4 py-3">{processedRequests.filter(r => r.statusCode == col.id).length}</div></div>
-                                            <div className="overflow-y-auto hide-scrollbar flex-1 pb-4 pr-1">{processedRequests.filter(r => r.statusCode == col.id).map(req => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}{processedRequests.filter(r => r.statusCode == col.id).length === 0 && <div className="text-center py-16 text-base-content/40 text-base font-medium border-2 border-dashed border-slate-300 rounded-2xl mx-1 bg-slate-50/50">ไม่มีรายการ</div>}</div>
+                                        <div key={col.id} className={`shrink-0 w-[86vw] snap-center rounded-[1.5rem] p-3.5 flex flex-col border border-slate-200 shadow-inner ${col.bgClass}`} style={{maxHeight: 'calc(100vh - 150px)'}}>
+                                            <div className="flex justify-between items-center mb-3 px-1 shrink-0">
+                                                <h3 className={`font-black text-xl ${col.textClass}`}>{col.title}</h3>
+                                                <div className="badge shadow-sm border border-slate-200 bg-white font-bold text-xs py-2 px-3">{processedRequests.filter(r => r.statusCode == col.id).length}</div>
+                                            </div>
+                                            <div className="overflow-y-auto hide-scrollbar flex-1 pb-2">
+                                                {processedRequests.filter(r => r.statusCode == col.id).map(req => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}
+                                                {processedRequests.filter(r => r.statusCode == col.id).length === 0 && <div className="text-center py-10 text-slate-400 text-xs font-medium border border-dashed border-slate-300 rounded-xl bg-slate-50/50">ไม่มีรายการ</div>}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                             )}
+                            <QuotaModal />
                         </div>
                     );
                 } 
@@ -414,46 +578,124 @@
                 if (userProfile.role === 'Manager') {
                     const pendingMyApproval = processedRequests.filter(r => r.statusCode == 1 && r.managerEmail === userProfile.empEmail);
                     const others = processedRequests.filter(r => !(r.statusCode == 1 && r.managerEmail === userProfile.empEmail));
+                    
                     return (
-                        <div className="min-h-screen pb-20 p-4 max-w-md mx-auto">
-                            <div className="navbar bg-base-100 rounded-[1.5rem] shadow-sm mb-6 mt-4 border border-base-200"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost text-base-content/50 text-xl">◀</button></div><div className="flex-1 px-4"><h2 className="text-2xl font-bold">จัดการคำขอลา</h2></div></div><div className="px-1 mb-6">{filterControls}</div>
-                            {isLoading && requests.length === 0 ? <div className="text-center py-10 text-base-content/50"><span className="loading loading-spinner loading-lg"></span></div> : (
-                                <div className="px-1 mt-4">
-                                    <div className="bg-slate-100 p-5 rounded-[2rem] mb-10 border border-slate-200 shadow-inner"><div className="flex justify-between items-center mb-6 px-2"><h3 className="font-black text-2xl text-[#F57F17]">รออนุมัติ</h3><div className="badge badge-warning badge-lg font-bold border-none shadow-sm px-4 py-3 text-base">{pendingMyApproval.length}</div></div><div className="space-y-4">{pendingMyApproval.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-2xl text-base font-medium shadow-sm border border-slate-200">ไม่มีรายการรอดำเนินการ 🎉</div> : pendingMyApproval.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}</div></div>
-                                    <h3 className="font-bold text-xl text-base-content/50 mb-5 ml-2">ประวัติในทีม</h3><div className="space-y-4">{others.length === 0 ? <div className="text-center py-8 text-base-content/40 text-base">ไม่มีประวัติ</div> : others.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}</div>
+                        <div className="app-container pb-10">
+                            <div className="navbar bg-white rounded-2xl shadow-sm mb-4 mt-3 border border-slate-100 mx-4 w-auto min-h-12 px-2">
+                                <div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-sm btn-circle btn-ghost text-slate-500">◀</button></div>
+                                <div className="flex-1 px-2"><h2 className="text-xl font-bold text-slate-800">จัดการคำขอลา</h2></div>
+                            </div>
+                            <div className="px-4">{filterControls}</div>
+                            
+                            {isLoading && requests.length === 0 ? <div className="text-center py-10 text-slate-400"><span className="loading loading-spinner loading-md"></span></div> : (
+                                <div className="px-4 mt-2">
+                                    <div className="bg-slate-100 p-4 rounded-[1.5rem] mb-6 border border-slate-200 shadow-inner">
+                                        <div className="flex justify-between items-center mb-4 px-1">
+                                            <h3 className="font-bold text-lg text-[#F57F17]">รออนุมัติ</h3>
+                                            <div className="badge badge-warning font-bold border-none shadow-sm text-xs px-3">{pendingMyApproval.length}</div>
+                                        </div>
+                                        <div className="space-y-3">
+                                            {pendingMyApproval.length === 0 ? <div className="text-center py-8 text-slate-400 bg-white rounded-xl text-xs font-medium shadow-sm border border-slate-200">ไม่มีรายการรอดำเนินการ 🎉</div> : pendingMyApproval.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}
+                                        </div>
+                                    </div>
+                                    <h3 className="font-bold text-sm text-slate-400 mb-3 ml-2">ประวัติในทีม</h3>
+                                    <div className="space-y-3">
+                                        {others.length === 0 ? <div className="text-center py-6 text-slate-400 text-xs">ไม่มีประวัติ</div> : others.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}
+                                    </div>
                                 </div>
                             )}
+                            <QuotaModal />
                         </div>
                     );
                 }
 
                 return (
-                    <div className="min-h-screen pb-20 p-4 max-w-md mx-auto">
-                        <div className="navbar bg-base-100 rounded-[1.5rem] shadow-sm mb-6 mt-4 border border-base-200"><div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-square btn-ghost text-base-content/50 text-xl">◀</button></div><div className="flex-1 px-4"><h2 className="text-2xl font-bold">ประวัติการลา</h2></div></div><div className="px-1 mb-6">{filterControls}</div>
-                        <div className="px-1 mt-4">{isLoading && requests.length === 0 ? <div className="text-center py-10 text-base-content/50"><span className="loading loading-spinner loading-lg"></span></div> : (<div className="space-y-4">{processedRequests.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}</div>)}</div>
+                    <div className="app-container pb-10">
+                        <div className="navbar bg-white rounded-2xl shadow-sm mb-4 mt-3 border border-slate-100 mx-4 w-auto min-h-12 px-2">
+                            <div className="flex-none"><button onClick={() => setCurrentPage('dashboard')} className="btn btn-sm btn-circle btn-ghost text-slate-500">◀</button></div>
+                            <div className="flex-1 px-2"><h2 className="text-xl font-bold text-slate-800">ประวัติการลา</h2></div>
+                        </div>
+                        <div className="px-4">{filterControls}</div>
+                        <div className="px-4 mt-2">
+                            {isLoading && requests.length === 0 ? <div className="text-center py-10 text-slate-400"><span className="loading loading-spinner loading-md"></span></div> : (
+                                <div className="space-y-3">
+                                    {processedRequests.map((req) => viewMode === 'board' ? <LeaveCard key={req.reqId} req={req} /> : <LeaveCompactRow key={req.reqId} req={req} />)}
+                                </div>
+                            )}
+                        </div>
+                        <QuotaModal />
                     </div>
                 );
             }
 
+            // ==========================================
+            // Dashboard
+            // ==========================================
             return (
-                <div className="min-h-screen pb-20 p-5 max-w-md mx-auto">
-                    <div className="mb-10 pt-10 pl-2">
-                        <p className="text-base font-bold text-primary/80 mb-2 tracking-wider">ยินดีต้อนรับ</p>
-                        <h2 className="text-5xl font-extrabold text-base-content mb-5 tracking-tight flex items-center gap-4"><Avatar url={lineProfile?.pictureUrl} name={userProfile['nickname'] || userProfile['fullName']} sizeClass="w-16" />{userProfile['nickname'] || userProfile['fullName']}</h2>
-                        <div className="inline-flex items-center gap-3 py-2.5 px-5 font-bold text-sm border border-base-200 shadow-sm bg-base-100 rounded-full mt-2"><span className="text-base-content/80">{userProfile['position']}</span><span className="opacity-30">|</span><span className="text-base-content/50">{userProfile['role']}</span></div>
+                <div className="app-container p-5">
+                    <div className="mb-6 pt-4">
+                        <p className="text-xs font-bold text-blue-500 mb-1 tracking-wider">ยินดีต้อนรับ</p>
+                        <h2 className="text-3xl font-black text-slate-800 mb-3 tracking-tight flex items-center gap-3">
+                            <Avatar url={lineProfile?.pictureUrl} name={userProfile['nickname'] || userProfile['fullName']} sizeClass="w-14" />
+                            <span className="truncate">{userProfile['nickname'] || userProfile['fullName']}</span>
+                        </h2>
+                        <div className="inline-flex items-center gap-2 py-1.5 px-4 font-bold text-[11px] border border-slate-200 shadow-sm bg-white rounded-full mt-1">
+                            <span className="text-slate-600">{userProfile['position']}</span>
+                            <span className="text-slate-300">|</span> 
+                            <span className="text-slate-400">{userProfile['role']}</span>
+                        </div>
                     </div>
-                    <h3 className="text-xs font-bold text-base-content/40 mb-4 ml-2 uppercase tracking-widest">โควต้าวันลา</h3>
-                    <div className="grid grid-cols-3 gap-3 mb-12">
-                        <div className="card bg-[#FFF3E0] shadow-md border border-[#FFE0B2] rounded-3xl"><div className="card-body p-4 items-center text-center justify-between min-h-[150px]"><div className="text-sm font-bold text-[#E65100]/60 mb-1">ลากิจ</div><div className="text-5xl font-black text-[#E65100] my-2 leading-none">{userProfile['remainPersonal'] || 0}</div><div className="w-full text-[11px] font-bold text-[#E65100]/50 flex justify-between border-t border-black/5 pt-3 mt-2"><span>สิทธิ {userProfile['quotaPersonal'] || 0}</span><span className="text-[#E65100]">ใช้ {userProfile['usedPersonal'] || 0}</span></div></div></div>
-                        <div className="card bg-[#E3F2FD] shadow-md border border-[#BBDEFB] rounded-3xl"><div className="card-body p-4 items-center text-center justify-between min-h-[150px]"><div className="text-sm font-bold text-[#1565C0]/60 mb-1">ลาป่วย</div><div className="text-5xl font-black text-[#1565C0] my-2 leading-none">{userProfile['remainSick'] || 0}</div><div className="w-full text-[11px] font-bold text-[#1565C0]/50 flex justify-between border-t border-black/5 pt-3 mt-2"><span>สิทธิ {userProfile['quotaSick'] || 0}</span><span className="text-[#1565C0]">ใช้ {userProfile['usedSick'] || 0}</span></div></div></div>
-                        <div className="card bg-[#E8F5E9] shadow-md border border-[#C8E6C9] rounded-3xl"><div className="card-body p-4 items-center text-center justify-between min-h-[150px]"><div className="text-sm font-bold text-[#2E7D32]/60 mb-1">พักร้อน</div><div className="text-5xl font-black text-[#2E7D32] my-2 leading-none">{userProfile['remainAnnual'] || 0}</div><div className="w-full text-[11px] font-bold text-[#2E7D32]/50 flex justify-between border-t border-black/5 pt-3 mt-2"><span>สิทธิ {userProfile['quotaAnnual'] || 0}</span><span className="text-[#2E7D32]">ใช้ {userProfile['usedAnnual'] || 0}</span></div></div></div>
+
+                    <h3 className="text-[10px] font-bold text-slate-400 mb-3 ml-2 uppercase tracking-widest">โควต้าวันลา</h3>
+                    <div className="grid grid-cols-3 gap-2.5 mb-8">
+                        <div className="card bg-[#FFF3E0] shadow-sm border border-[#FFE0B2] rounded-[1.25rem]">
+                            <div className="card-body p-3 items-center text-center justify-between min-h-[110px]">
+                                <div className="text-[10px] font-bold text-[#E65100]/60 mb-1">ลากิจ</div>
+                                <div className="text-3xl font-black text-[#E65100] my-1 leading-none">{userProfile['remainPersonal'] || 0}</div>
+                                <div className="w-full text-[9px] font-bold text-[#E65100]/50 flex justify-between border-t border-black/5 pt-2 mt-1"><span>สิทธิ {userProfile['quotaPersonal'] || 0}</span></div>
+                            </div>
+                        </div>
+                        <div className="card bg-[#E3F2FD] shadow-sm border border-[#BBDEFB] rounded-[1.25rem]">
+                            <div className="card-body p-3 items-center text-center justify-between min-h-[110px]">
+                                <div className="text-[10px] font-bold text-[#1565C0]/60 mb-1">ลาป่วย</div>
+                                <div className="text-3xl font-black text-[#1565C0] my-1 leading-none">{userProfile['remainSick'] || 0}</div>
+                                <div className="w-full text-[9px] font-bold text-[#1565C0]/50 flex justify-between border-t border-black/5 pt-2 mt-1"><span>สิทธิ {userProfile['quotaSick'] || 0}</span></div>
+                            </div>
+                        </div>
+                        <div className="card bg-[#E8F5E9] shadow-sm border border-[#C8E6C9] rounded-[1.25rem]">
+                            <div className="card-body p-3 items-center text-center justify-between min-h-[110px]">
+                                <div className="text-[10px] font-bold text-[#2E7D32]/60 mb-1">พักร้อน</div>
+                                <div className="text-3xl font-black text-[#2E7D32] my-1 leading-none">{userProfile['remainAnnual'] || 0}</div>
+                                <div className="w-full text-[9px] font-bold text-[#2E7D32]/50 flex justify-between border-t border-black/5 pt-2 mt-1"><span>สิทธิ {userProfile['quotaAnnual'] || 0}</span></div>
+                            </div>
+                        </div>
                     </div>
-                    <h3 className="text-xs font-bold text-base-content/40 mb-4 ml-2 uppercase tracking-widest">เมนู</h3>
-                    <div className="space-y-5">
-                        <button onClick={() => setCurrentPage('form')} className="card bg-base-100 shadow-md border border-base-200 w-full hover:shadow-lg transition-all active:scale-[0.98] rounded-[2.5rem]"><div className="card-body p-6 flex-row items-center justify-between"><div className="flex items-center gap-5"><div className="avatar placeholder"><div className="bg-primary/10 text-primary rounded-2xl w-16 h-16 text-3xl shadow-inner border border-primary/10">📝</div></div><div className="text-left"><h4 className="font-black text-base-content text-2xl mb-1">เขียนใบคำขอลา</h4><p className="text-sm text-base-content/50 font-bold">ยื่นแบบฟอร์มการลาใหม่</p></div></div><span className="text-base-content/20 text-4xl font-light">›</span></div></button>
-                        <button onClick={() => { fetchRequests(); setCurrentPage('feed'); }} className="card bg-base-100 shadow-md border border-base-200 w-full hover:shadow-lg transition-all active:scale-[0.98] rounded-[2.5rem]"><div className="card-body p-6 flex-row items-center justify-between"><div className="flex items-center gap-5"><div className="avatar placeholder"><div className="bg-warning/10 text-warning rounded-2xl w-16 h-16 text-3xl shadow-inner border border-warning/10">📋</div></div><div className="text-left"><h4 className="font-black text-base-content text-2xl mb-1">{userProfile.role === 'Employee' ? 'ประวัติการลา' : 'Board จัดการใบลา'}</h4><p className="text-sm text-base-content/50 font-bold">{userProfile.role === 'Employee' ? 'ดูประวัติการลาของคุณ' : 'ตรวจสอบและอนุมัติรายการ'}</p></div></div><span className="text-base-content/20 text-4xl font-light">›</span></div></button>
+                    
+                    <h3 className="text-[10px] font-bold text-slate-400 mb-3 ml-2 uppercase tracking-widest">เมนู</h3>
+                    <div className="space-y-3">
+                        <button onClick={() => setCurrentPage('form')} className="card bg-white shadow-sm border border-slate-100 w-full hover:shadow-md transition-all active:scale-[0.98] rounded-[1.5rem]">
+                            <div className="card-body p-4 flex-row items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="avatar placeholder"><div className="bg-blue-50 text-blue-500 rounded-xl w-12 h-12 text-xl shadow-inner">📝</div></div>
+                                    <div className="text-left"><h4 className="font-bold text-slate-700 text-lg mb-0.5">เขียนใบคำขอลา</h4><p className="text-[11px] text-slate-400 font-medium">ยื่นแบบฟอร์มการลาใหม่</p></div>
+                                </div>
+                                <span className="text-slate-300 text-2xl font-light">›</span>
+                            </div>
+                        </button>
+                        <button onClick={() => { fetchRequests(); setCurrentPage('feed'); }} className="card bg-white shadow-sm border border-slate-100 w-full hover:shadow-md transition-all active:scale-[0.98] rounded-[1.5rem]">
+                            <div className="card-body p-4 flex-row items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="avatar placeholder"><div className="bg-orange-50 text-orange-500 rounded-xl w-12 h-12 text-xl shadow-inner">📋</div></div>
+                                    <div className="text-left"><h4 className="font-bold text-slate-700 text-lg mb-0.5">{userProfile.role === 'Employee' ? 'ประวัติการลา' : 'Board จัดการใบลา'}</h4><p className="text-[11px] text-slate-400 font-medium">{userProfile.role === 'Employee' ? 'ดูประวัติการลาของคุณ' : 'ตรวจสอบและอนุมัติรายการ'}</p></div>
+                                </div>
+                                <span className="text-slate-300 text-2xl font-light">›</span>
+                            </div>
+                        </button>
                     </div>
-                    <div className="text-center mt-16 mb-6"><button onClick={() => { liff.logout(); setCurrentPage('login'); }} className="btn btn-ghost btn-sm text-base-content/40 hover:text-error tracking-wider uppercase text-xs font-bold">ออกจากระบบ (เปลี่ยนบัญชี LINE)</button></div>
+
+                    <div className="text-center mt-8 mb-6">
+                        <button onClick={() => { liff.logout(); setCurrentPage('login'); }} className="btn btn-ghost btn-sm text-slate-400 hover:text-red-500 tracking-wider text-[10px] font-bold">ออกจากระบบ (เปลี่ยนบัญชี LINE)</button>
+                    </div>
                 </div>
             );
         }
