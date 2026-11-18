@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ตรวจสอบสิทธิการลา</title>
+    <!-- นำเข้า Tailwind CSS, SweetAlert2 และ LIFF SDK -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Prompt', sans-serif; }
+    </style>
+</head>
+<body class="bg-[#F8F6F4] flex items-center justify-center min-h-screen">
+
+    <!-- Loading Screen -->
+    <div id="loading" class="flex flex-col items-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-[#D97757] mb-4"></div>
+        <p class="text-[#8E7D73] font-medium tracking-wide">กำลังโหลดข้อมูลสิทธิการลา...</p>
+    </div>
+
+    <script>
+        // กำหนดค่าคอนฟิก
+        const LIFF_ID = "YOUR_LIFF_ID_HERE"; // นำ LIFF ID มาใส่
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzmnO2wTEFffmACGIxHKCSzFmf4dbfmsIJrLBJBvK5fLDIfalwF7Va9NHCkvLhFbHUwsg/exec"; // นำ URL ของ GAS Web App มาใส่
+
+        async function initializeApp() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                
+                // หากเปิดนอก LINE ให้ Login ก่อน
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+
+                // 1. ดึงข้อมูล User จาก LINE
+                const profile = await liff.getProfile();
+                const lineUid = profile.userId;
+
+                // 2. เรียกไปยัง Backend (GAS)
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // ใช้ text/plain เลี่ยง CORS Preflight
+                    body: JSON.stringify({ 
+                        action: 'getQuotaFlexMessage', 
+                        lineUid: lineUid 
+                    })
+                });
+
+                const result = await response.json();
+
+                // 3. จัดการผลลัพธ์
+                if (result.success && result.flex) {
+                    // สั่งให้ User ส่ง Flex Message ในห้องแชท
+                    await liff.sendMessages([
+                        {
+                            type: "flex",
+                            altText: "สรุปสิทธิวันลาของคุณ",
+                            contents: result.flex
+                        }
+                    ]);
+                    
+                    // ปิดหน้าจอ LIFF หลังจากส่งสำเร็จ
+                    liff.closeWindow();
+                } else {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'ไม่สามารถดึงข้อมูลได้',
+                        text: result.message,
+                        confirmButtonColor: '#D97757'
+                    }).then(() => liff.closeWindow());
+                }
+
+            } catch (error) {
+                console.error("Error:", error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'เกิดข้อผิดพลาด',
+                    text: 'ไม่สามารถเชื่อมต่อกับระบบได้',
+                    confirmButtonColor: '#D97757'
+                }).then(() => liff.closeWindow());
+            }
+        }
+
+        // เริ่มต้นการทำงานเมื่อโหลดหน้าเว็บ
+        window.onload = initializeApp;
+    </script>
+</body>
+</html>
